@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>Near Duplicate Diagnostic</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 24px; color: #202124; }
+    h1 { font-size: 24px; }
+    table { width: 100%; border-collapse: collapse; margin: 12px 0 28px; }
+    th, td { border-bottom: 1px solid #eee; padding: 8px; text-align: left; vertical-align: top; }
+    th { background: #f6f8fa; }
+    code { word-break: break-all; }
+    .accepted_high_confidence { color: #137333; font-weight: 700; }
+    .accepted_probable, .accepted_suspicious { color: #b06000; font-weight: 700; }
+    .rejected_author_conflict, .rejected_below_threshold { color: #b3261e; font-weight: 700; }
+  </style>
+</head>
+<body>
+  <h1>近似重复诊断</h1>
+  <p>生成时间：{{ generated_at }}；候选对数量：{{ pairs|length }}</p>
+  <h2>标题规范化样例</h2>
+  <table>
+    <thead><tr><th>book_id</th><th>file_name</th><th>title_raw</th><th>title_norm</th><th>author_norm</th><th>file_name_norm</th></tr></thead>
+    <tbody>
+    {% for row in title_samples %}
+      <tr><td>{{ row.book_id }}</td><td><code>{{ row.file_name }}</code></td><td>{{ row.title_raw }}</td><td>{{ row.title_norm }}</td><td>{{ row.author_norm }}</td><td>{{ row.file_name_norm }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <h2>候选对诊断</h2>
+  <table>
+    <thead><tr><th>pair</th><th>A</th><th>B</th><th>title</th><th>author</th><th>chapter</th><th>simhash</th><th>block</th><th>length</th><th>score</th><th>status</th><th>reason</th><th>risk</th></tr></thead>
+    <tbody>
+    {% for row in pairs %}
+      <tr>
+        <td>{{ row.pair_id }}</td>
+        <td><code>{{ row.file_a }}</code></td>
+        <td><code>{{ row.file_b }}</code></td>
+        <td>{{ "%.4f"|format(row.title_similarity) }}</td>
+        <td>{{ "%.4f"|format(row.author_similarity) }}</td>
+        <td>{{ "%.4f"|format(row.chapter_title_overlap) }}</td>
+        <td>{{ "%.4f"|format(row.simhash_similarity) }}</td>
+        <td>{{ "%.4f"|format(row.block_jaccard) }}</td>
+        <td>{{ "%.4f"|format(row.length_reasonableness) }}</td>
+        <td>{{ "%.4f"|format(row.same_work_score) }}</td>
+        <td class="{{ row.filter_status }}">{{ row.filter_status }}</td>
+        <td>{{ row.filter_reason }}</td>
+        <td>{{ row.risk_flags|join("；") }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</body>
+</html>

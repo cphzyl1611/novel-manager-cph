@@ -1,0 +1,13 @@
+.aider*
+__pycache__/
+*.pyc
+.pytest_cache/
+.tmp/
+pytest-cache-files-*/
+.venv/
+venv/
+.env
+*.db
+*.sqlite
+dist/
+build/

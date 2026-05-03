@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>Update Report</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 24px; color: #202124; }
+    h1 { font-size: 24px; }
+    .notice { padding: 12px; background: #fff7e6; border: 1px solid #ffd591; margin-bottom: 20px; }
+    .candidate { border: 1px solid #d9d9d9; border-radius: 6px; padding: 14px; margin: 18px 0; }
+    .replace_recommended { border-color: #52c41a; background: #f6ffed; }
+    .manual_review { border-color: #faad14; background: #fffdf5; }
+    .reject { border-color: #d9d9d9; background: #fafafa; color: #555; }
+    .risk { color: #b3261e; font-weight: 700; }
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+    th, td { border-bottom: 1px solid #eee; padding: 8px; text-align: left; vertical-align: top; }
+    th { background: #f6f8fa; }
+    code { word-break: break-all; }
+  </style>
+</head>
+<body>
+  <h1>更新检测报告</h1>
+  <div class="notice">本报告不执行替换，不移动、不删除、不覆盖、不修改 TXT 文件。</div>
+  <p>生成时间：{{ generated_at }}；incoming：{{ incoming_count }}；library：{{ library_count }}；候选：{{ candidates|length }}</p>
+  {% if incoming_count == 0 %}
+  <p>未发现 incoming 文件，请先将新下载小说放入 incoming 并运行 scan --area incoming。</p>
+  {% endif %}
+  {% for c in candidates %}
+  <section class="candidate {{ c.recommendation }}">
+    <h2>#{{ c.candidate_id }} {{ c.recommendation }}</h2>
+    <p><code>{{ c.old_file }}</code> -> <code>{{ c.new_file }}</code></p>
+    <p>{{ c.reason_summary }}</p>
+    <p class="risk">{{ c.risk_flags|join("；") }}</p>
+    <table>
+      <thead><tr><th>same</th><th>coverage</th><th>new_content</th><th>quality_delta</th><th>chapter_delta</th><th>char_delta</th><th>ad_delta</th><th>mojibake_delta</th></tr></thead>
+      <tbody><tr>
+        <td>{{ c.same_work_score }}</td><td>{{ c.coverage_score }}</td><td>{{ c.new_content_score }}</td><td>{{ c.quality_delta }}</td>
+        <td>{{ c.chapter_count_delta }}</td><td>{{ c.char_count_delta }}</td><td>{{ c.ad_line_delta }}</td><td>{{ c.mojibake_delta }}</td>
+      </tr></tbody>
+    </table>
+    <table>
+      <thead><tr><th></th><th>book_id</th><th>path</th><th>chapters</th><th>chars</th><th>quality</th><th>ads</th><th>mojibake</th><th>missing</th><th>duplicate chapters</th></tr></thead>
+      <tbody>
+        <tr><td>old</td><td>{{ c.old_book_id }}</td><td><code>{{ c.old_path }}</code></td><td>{{ c.old_chapter_count }}</td><td>{{ c.old_char_count }}</td><td>{{ c.old_quality_score }}</td><td>{{ c.old_ad_line_count }}</td><td>{{ c.old_mojibake_rate }}</td><td>{{ c.old_missing_chapter_count }}</td><td>{{ c.old_duplicate_chapter_count }}</td></tr>
+        <tr><td>new</td><td>{{ c.new_book_id }}</td><td><code>{{ c.new_path }}</code></td><td>{{ c.new_chapter_count }}</td><td>{{ c.new_char_count }}</td><td>{{ c.new_quality_score }}</td><td>{{ c.new_ad_line_count }}</td><td>{{ c.new_mojibake_rate }}</td><td>{{ c.new_missing_chapter_count }}</td><td>{{ c.new_duplicate_chapter_count }}</td></tr>
+      </tbody>
+    </table>
+    <p>新增章节样例：{{ c.new_chapters_sample|join("；") }}</p>
+    <p>新版未覆盖旧章节样例：{{ c.missing_old_chapters_sample|join("；") }}</p>
+  </section>
+  {% else %}
+  <p>未发现更新候选。</p>
+  {% endfor %}
+</body>
+</html>

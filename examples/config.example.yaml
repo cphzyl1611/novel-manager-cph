@@ -1,0 +1,8 @@
+repo_version: 1
+scan:
+  extensions:
+    - .txt
+  changed_only_default: true
+safety:
+  never_delete: true
+  require_confirm_for_moves: true

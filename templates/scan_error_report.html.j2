@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>Scan Error Report</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 24px; color: #202124; }
+    h1 { font-size: 24px; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { border-bottom: 1px solid #eee; padding: 8px; text-align: left; vertical-align: top; }
+    th { background: #f6f8fa; }
+    code { word-break: break-all; }
+  </style>
+</head>
+<body>
+  <h1>扫描错误报告</h1>
+  <p>生成时间：{{ generated_at }}</p>
+  <table>
+    <thead><tr><th>路径</th><th>区域</th><th>错误类型</th><th>错误信息</th><th>尝试编码</th><th>建议处理</th></tr></thead>
+    <tbody>
+    {% for error in errors %}
+      <tr>
+        <td><code>{{ error.file_path }}</code></td>
+        <td>{{ error.repo_area }}</td>
+        <td>{{ error.error_type }}</td>
+        <td>{{ error.error_message }}</td>
+        <td>{{ error.detected_encoding or "" }}</td>
+        <td>检查文件是否为空、被占用、权限受限或编码异常；必要时手工转换为 UTF-8 后重新扫描。</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</body>
+</html>

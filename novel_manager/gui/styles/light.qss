@@ -1,0 +1,89 @@
+QMainWindow {
+  background: #f5f7fb;
+}
+
+QToolBar {
+  background: #ffffff;
+  border-bottom: 1px solid #d9e2ef;
+  spacing: 8px;
+  padding: 6px;
+}
+
+#Nav {
+  background: #eef4fb;
+  min-width: 172px;
+  max-width: 172px;
+  border-right: 1px solid #d9e2ef;
+}
+
+QPushButton#NavButton {
+  text-align: left;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 6px;
+  color: #24364b;
+  background: transparent;
+}
+
+QPushButton#NavButton:hover {
+  background: #dcecff;
+}
+
+QPushButton {
+  border: 1px solid #c7d3e3;
+  border-radius: 6px;
+  padding: 7px 12px;
+  background: #ffffff;
+}
+
+QPushButton:hover {
+  background: #edf5ff;
+}
+
+QPushButton[class="primary"] {
+  background: #1f6feb;
+  color: #ffffff;
+  border-color: #1f6feb;
+}
+
+QLineEdit, QComboBox, QSpinBox {
+  border: 1px solid #c7d3e3;
+  border-radius: 5px;
+  padding: 6px;
+  background: #ffffff;
+}
+
+QTableWidget {
+  background: #ffffff;
+  border: 1px solid #d9e2ef;
+  gridline-color: #e9eef5;
+}
+
+QHeaderView::section {
+  background: #f0f4f8;
+  padding: 6px;
+  border: 0;
+  border-right: 1px solid #d9e2ef;
+}
+
+QFrame#StatCard, QFrame#Panel {
+  background: #ffffff;
+  border: 1px solid #d9e2ef;
+  border-radius: 8px;
+}
+
+QLabel#CardTitle {
+  color: #64748b;
+  font-size: 12px;
+}
+
+QLabel#CardValue {
+  color: #0f172a;
+  font-size: 26px;
+  font-weight: 700;
+}
+
+QStatusBar {
+  background: #ffffff;
+  border-top: 1px solid #d9e2ef;
+}

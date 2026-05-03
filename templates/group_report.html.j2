@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>Group Report</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 24px; color: #202124; }
+    h1 { font-size: 24px; }
+    .group { border: 1px solid #d9d9d9; border-radius: 6px; padding: 14px; margin: 18px 0; }
+    .risk { color: #b06000; font-weight: 600; }
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+    th, td { border-bottom: 1px solid #eee; padding: 8px; text-align: left; vertical-align: top; }
+    th { background: #f6f8fa; }
+    code { word-break: break-all; }
+  </style>
+</head>
+<body>
+  <h1>作品分组报告</h1>
+  <p>生成时间：{{ generated_at }}</p>
+  <p>安全提示：本报告不移动、不删除、不修改小说文件；apply 也只写入数据库分组表。</p>
+  {% for group in candidates %}
+  <section class="group">
+    <h2>候选组 #{{ group.candidate_group_id }} - {{ group.canonical_title }}</h2>
+    <p>作者：{{ group.canonical_author or "-" }}；置信度：{{ group.group_confidence }}；来源：{{ group.group_source }}</p>
+    <p>原因：{{ group.group_reason }}</p>
+    <p>推荐主版本：book_id={{ group.recommended_primary_book_id }} <code>{{ group.recommended_primary_file }}</code></p>
+    <p>可自动 apply：{{ "yes" if group.auto_apply else "no" }}；manual_review：{{ "yes" if group.manual_review else "no" }}</p>
+    <p class="risk">风险：{{ group.risks|join("；") if group.risks else "无明显风险" }}</p>
+    <table>
+      <thead><tr><th>book_id</th><th>角色</th><th>文件</th><th>质量</th><th>章节</th><th>字数</th><th>广告</th><th>乱码率</th><th>说明</th></tr></thead>
+      <tbody>
+      {% for member in group.members %}
+        <tr>
+          <td>{{ member.book_id }}</td>
+          <td>{{ member.role }}</td>
+          <td><code>{{ member.current_path }}</code></td>
+          <td>{{ member.quality_score }} / {{ member.quality_level }}</td>
+          <td>{{ member.chapter_count }}</td>
+          <td>{{ member.char_count_clean }}</td>
+          <td>{{ member.ad_line_count }}</td>
+          <td>{{ "%.4f"|format(member.mojibake_rate or 0) }}</td>
+          <td>{{ member.member_reason }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </section>
+  {% else %}
+  <p>未发现作品分组候选。</p>
+  {% endfor %}
+</body>
+</html>

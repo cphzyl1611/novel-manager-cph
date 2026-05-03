@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>Duplicate Report</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 24px; color: #202124; }
+    h1 { font-size: 24px; }
+    .notice { padding: 12px; background: #fff7e6; border: 1px solid #ffd591; margin-bottom: 20px; }
+    .group { border: 1px solid #d9d9d9; margin: 18px 0; padding: 14px; border-radius: 6px; }
+    .near { border-color: #faad14; background: #fffdf5; }
+    .risk { color: #b3261e; font-weight: 700; }
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+    th, td { border-bottom: 1px solid #eee; padding: 8px; text-align: left; vertical-align: top; }
+    th { background: #f6f8fa; }
+    code { word-break: break-all; }
+    .keep { color: #137333; font-weight: 600; }
+    .archive_candidate, .review { color: #b06000; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <h1>重复文件报告</h1>
+  <p>生成时间：{{ generated_at }}</p>
+  <div class="notice">安全提示：本报告只用于人工复核；近似重复不会自动移动或修改 TXT。</div>
+
+  <h2>精确重复</h2>
+  {% for group in groups if group.group_type != "near_duplicate" %}
+  <section class="group">
+    <h3>重复组 #{{ group.id }} - {{ group.group_type }}</h3>
+    <p>置信度：{{ group.confidence }}；推荐保留 book_id：{{ group.recommended_keep_book_id }}</p>
+    <p>{{ group.reason_summary }}</p>
+    <table>
+      <thead><tr><th>角色</th><th>路径</th><th>字数</th><th>章节</th><th>质量分</th><th>广告行</th><th>乱码率</th><th>原因</th></tr></thead>
+      <tbody>
+      {% for member in group.members %}
+        <tr>
+          <td class="{{ member.suggested_role }}">{{ member.suggested_role }}</td>
+          <td><code>{{ member.book.current_path }}</code></td>
+          <td>{{ member.book.char_count_clean }}</td>
+          <td>{{ member.book.chapter_count }}</td>
+          <td>{{ member.book.quality_score }}</td>
+          <td>{{ member.book.ad_line_count }}</td>
+          <td>{{ "%.4f"|format(member.book.mojibake_rate or 0) }}</td>
+          <td>{{ member.reason }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </section>
+  {% else %}
+  <p>未发现精确重复。</p>
+  {% endfor %}
+
+  <h2>近似重复 near_duplicate</h2>
+  {% for group in groups if group.group_type == "near_duplicate" %}
+  <section class="group near">
+    <h3>候选 #{{ group.id }} - near_duplicate</h3>
+    <p>same_work_score：{{ group.same_work_score }}；confidence_level：{{ group.confidence_level }}；推荐保留 book_id：{{ group.recommended_keep_book_id }}</p>
+    <p>建议动作：{{ group.recommended_action }}；{{ group.reason_summary }}</p>
+    <p class="risk">风险：{{ group.risk_flags|join("；") if group.risk_flags else "无明显风险" }}</p>
+    {% if "possible_update_version" in group.risk_flags %}
+    <p class="risk">这可能是新版，不建议按普通重复处理，后续应进入 update detection。</p>
+    {% endif %}
+    {% if "author_conflict" in group.risk_flags %}
+    <p class="risk">作者冲突：必须人工确认。</p>
+    {% endif %}
+    <table>
+      <thead><tr><th>分项</th><th>标题</th><th>作者</th><th>章节</th><th>SimHash</th><th>分块</th><th>长度</th></tr></thead>
+      <tbody><tr>
+        <td>score</td>
+        <td>{{ group.similarity_breakdown.title_similarity }}</td>
+        <td>{{ group.similarity_breakdown.author_similarity }}</td>
+        <td>{{ group.similarity_breakdown.chapter_title_overlap }}</td>
+        <td>{{ group.similarity_breakdown.simhash_similarity }}</td>
+        <td>{{ group.similarity_breakdown.block_jaccard }}</td>
+        <td>{{ group.similarity_breakdown.length_reasonableness }}</td>
+      </tr></tbody>
+    </table>
+    <table>
+      <thead><tr><th>角色</th><th>路径</th><th>字数</th><th>章节</th><th>质量分</th><th>广告行</th><th>乱码率</th><th>原因</th></tr></thead>
+      <tbody>
+      {% for member in group.members %}
+        <tr>
+          <td class="{{ member.suggested_role }}">{{ member.suggested_role }}</td>
+          <td><code>{{ member.book.current_path }}</code></td>
+          <td>{{ member.book.char_count_clean }}</td>
+          <td>{{ member.book.chapter_count }}</td>
+          <td>{{ member.book.quality_score }}</td>
+          <td>{{ member.book.ad_line_count }}</td>
+          <td>{{ "%.4f"|format(member.book.mojibake_rate or 0) }}</td>
+          <td>{{ member.reason }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </section>
+  {% else %}
+  <p>未发现近似重复候选。</p>
+  {% endfor %}
+</body>
+</html>

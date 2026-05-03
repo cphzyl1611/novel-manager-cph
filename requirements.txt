@@ -1,0 +1,8 @@
+charset-normalizer
+rapidfuzz
+jinja2
+rich
+pyyaml
+tqdm
+pytest
+PySide6
