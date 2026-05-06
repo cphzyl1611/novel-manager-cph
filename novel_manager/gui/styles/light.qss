@@ -59,6 +59,33 @@ QTableWidget {
   gridline-color: #e9eef5;
 }
 
+QTableWidget::item:selected {
+  background: #dcecff;
+  color: #0f172a;
+}
+
+QTableWidget::indicator {
+  width: 18px;
+  height: 18px;
+}
+
+QTableWidget::indicator:unchecked {
+  border: 2px solid #8b949e;
+  border-radius: 3px;
+  background: #ffffff;
+}
+
+QTableWidget::indicator:unchecked:hover {
+  border-color: #1f6feb;
+  background: #edf5ff;
+}
+
+QTableWidget::indicator:checked {
+  border: 2px solid #1f6feb;
+  border-radius: 3px;
+  background: #1f6feb;
+}
+
 QHeaderView::section {
   background: #f0f4f8;
   padding: 6px;

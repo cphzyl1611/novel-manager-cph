@@ -1,0 +1,39 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m pytest tests/test_gui_safe_actions.py -v -p no:cacheprovider)",
+      "Bash(python -m pytest tests/test_gui_core.py -v -p no:cacheprovider)",
+      "Bash(where python3 *)",
+      "Bash(where py *)",
+      "Bash(where python *)",
+      "Bash(/c/Users/cphzy/AppData/Local/Programs/Python/Python312/python.exe --version)",
+      "Bash(py --version)",
+      "Read(//c/Users/**)",
+      "Bash(cmd.exe *)",
+      "Bash(export PATH=\"$PATH:/c/Windows/System32:/c/Windows:/usr/bin:/bin\")",
+      "Read(//c/Windows/System32/**)",
+      "Bash(/c/Windows/System32/where.exe python *)",
+      "Bash(/c/Windows/System32/where.exe python3 *)",
+      "Bash(/c/Windows/System32/where.exe py *)",
+      "Bash(/c/Users/cphzy/AppData/Local/Microsoft/WindowsApps/python.exe *)",
+      "Bash(/c/Users/cphzy/AppData/Local/Microsoft/WindowsApps/python3.exe --version)",
+      "Bash(/d/anaconda3/python.exe *)",
+      "Bash(\"/d/anaconda3/python.exe\" -m py_compile novel_manager/gui/pages/update_page.py)",
+      "Bash(\"/d/anaconda3/python.exe\" -m py_compile novel_manager/gui/pages/rename_plan_page.py)",
+      "Bash(where git *)",
+      "Read(//c/Program Files/Git/bin/**)",
+      "Read(//c/Program Files \\(x86\\)/Git/bin/**)",
+      "Bash(cmd //c \"where git\")",
+      "Read(//mnt/c/Program Files/Git/bin/**)",
+      "Read(//mnt/c/Program Files \\(x86\\)/Git/bin/**)",
+      "Bash(python -m pytest tests/test_gui_safe_actions.py -v)",
+      "Bash(ls \"/c/Python\"*\"/python.exe\")",
+      "Read(//mnt/c/Users/cphzy/AppData/Local/Programs/**)",
+      "Read(//d/anaconda3/**)",
+      "Read(//e/anaconda3/**)",
+      "Read(//c/anaconda3/**)",
+      "Read(//d/Anaconda3/**)",
+      "Read(//c/ProgramData/anaconda3/**)"
+    ]
+  }
+}

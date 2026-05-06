@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from PySide6.QtWidgets import QCheckBox, QComboBox, QFileDialog, QFormLayout, QHBoxLayout, QLineEdit, QMessageBox, QPushButton, QPlainTextEdit, QVBoxLayout, QWidget
 
 from ..i18n import AREA_LABELS
@@ -131,13 +133,34 @@ class ToolsPage(QWidget):  # pragma: no cover
             command = "report-index"
         elif label == "apply-renames dry-run":
             command = "apply-renames"
-            args = ["--report", self.report.text().strip(), "--dry-run"]
+            report_path = self.report.text().strip()
+            if not report_path:
+                QMessageBox.warning(self, "缺少报告文件", "请先选择报告文件。")
+                return
+            if not Path(report_path).exists():
+                QMessageBox.warning(self, "报告文件不存在", f"报告文件不存在：{report_path}")
+                return
+            args = ["--report", report_path, "--dry-run"]
         elif label == "apply-updates dry-run":
             command = "apply-updates"
-            args = ["--report", self.report.text().strip(), "--dry-run"]
+            report_path = self.report.text().strip()
+            if not report_path:
+                QMessageBox.warning(self, "缺少报告文件", "请先选择报告文件。")
+                return
+            if not Path(report_path).exists():
+                QMessageBox.warning(self, "报告文件不存在", f"报告文件不存在：{report_path}")
+                return
+            args = ["--report", report_path, "--dry-run"]
         else:
             command = "stage-duplicates"
-            args = ["--report", self.report.text().strip(), "--dry-run"]
+            report_path = self.report.text().strip()
+            if not report_path:
+                QMessageBox.warning(self, "缺少报告文件", "请先选择报告文件。")
+                return
+            if not Path(report_path).exists():
+                QMessageBox.warning(self, "报告文件不存在", f"报告文件不存在：{report_path}")
+                return
+            args = ["--report", report_path, "--dry-run"]
         if self.query.text().strip() and command in {"diagnose-near", "check-updates", "rename-plan", "refresh-metadata"}:
             args.extend(["--query", self.query.text().strip()])
         if self.limit.text().strip() and command not in {"quality-report", "summary-report", "report-index", "post-rename-check"}:

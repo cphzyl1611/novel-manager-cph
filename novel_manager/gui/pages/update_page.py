@@ -18,7 +18,6 @@ class UpdatePage(QWidget):  # pragma: no cover
         self.repo = None
         self.report_path = None
         self.rows: list[dict] = []
-        self.selected_indexes: set[int] = set()
         layout = QVBoxLayout(self)
         buttons = QHBoxLayout()
         for text, cb in [
@@ -78,13 +77,12 @@ class UpdatePage(QWidget):  # pragma: no cover
             return
         self.report_path = find_latest_report(self.repo, "update")
         self.rows = load_update_report(self.report_path).get("candidates", [])
-        self.selected_indexes = {i for i, item in enumerate(self.rows) if is_safe_update_item(item)}
         self.list.clear()
         for index, item in enumerate(self.rows):
             text = f"{item.get('old_file') or item.get('old_title') or '当前库版本'}\n→ {item.get('new_file') or item.get('new_title') or '新下载版本'} · {action_label(item.get('recommendation'))}"
             row = QListWidgetItem(text)
             row.setData(32, index)
-            row.setCheckState(Qt.Checked if index in self.selected_indexes else Qt.Unchecked)
+            row.setCheckState(Qt.Checked if is_safe_update_item(item) else Qt.Unchecked)
             self.list.addItem(row)
         safe_count = sum(1 for item in self.rows if is_safe_update_item(item))
         self.apply_button.setEnabled(safe_count > 0)
