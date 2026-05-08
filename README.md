@@ -764,6 +764,36 @@ GUI 中没有“永久删除”按钮。“删除小说”类操作实现为“�
 ## 第二阶段预留
 
 数据库已预留 `work_groups`、`book_group_members`、`tags`、`book_tags`、`series`、`series_members`、`update_candidates`。第二阶段可继续做本地近似重复、本地版本更新检测、本地作品分组、本地系列管理、本地标签体系、更细的质量规则，以及可选的 Calibre 导出。
+
+## 双端 Web 服务
+
+NovelHub 是电脑端+手机端双端互联的小说管理 Web 服务。电脑端作为主仓库服务器，手机端通过局域网浏览器访问。
+
+### 启动
+
+```bash
+python server.py --repo "D:/NovelRepo_Test"                    # 仅本地
+python server.py --repo "D:/NovelRepo_Test" --host 0.0.0.0    # 开放局域网
+```
+
+手机浏览器访问 `http://<电脑IP>:8765`。
+
+### 功能
+
+- 首页书架（卡片式布局，响应式适配手机/平板/桌面）
+- 搜索小说（书名、作者）
+- 分组管理（对应 library 子文件夹）
+- 在线阅读（点击卡片打开阅读视图）
+- 更新候选概览
+
+### 安全
+
+- 默认只监听 127.0.0.1
+- `--host 0.0.0.0` 时终端打印安全提示
+- 所有文件路径限制在仓库目录下
+- 不提供永久删除 API
+
+详见 [docs/dual_end_novel_app_architecture.md](docs/dual_end_novel_app_architecture.md)。
 #   n o v e l - m a n a g e r  
  
 #   n o v e l - m a n a g e r - c p h  

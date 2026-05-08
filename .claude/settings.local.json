@@ -33,7 +33,8 @@
       "Read(//e/anaconda3/**)",
       "Read(//c/anaconda3/**)",
       "Read(//d/Anaconda3/**)",
-      "Read(//c/ProgramData/anaconda3/**)"
+      "Read(//c/ProgramData/anaconda3/**)",
+      "Bash(python -m pytest tests/ -v --timeout=60)"
     ]
   }
 }

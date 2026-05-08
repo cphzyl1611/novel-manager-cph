@@ -1,0 +1,159 @@
+from __future__ import annotations
+
+import sqlite3
+from pathlib import Path
+from typing import Any
+
+from ...db import connect as db_connect
+from ..config import is_safe_path, MAX_CONTENT_BYTES
+
+
+def list_books(
+    repo_path: str,
+    q: str = "",
+    area: str = "all",
+    limit: int = 60,
+    offset: int = 0,
+    sort: str = "updated_at",
+) -> dict[str, Any]:
+    root = Path(repo_path).expanduser().resolve()
+    conn = _open_db(root)
+    if conn is None:
+        return {"items": [], "total": 0, "limit": limit, "offset": offset}
+
+    clauses = ["1=1"]
+    params: list[Any] = []
+    if area and area != "all":
+        clauses.append("b.repo_area = ?")
+        params.append(area)
+    if q:
+        like = f"%{q}%"
+        clauses.append(
+            "(b.file_name LIKE ? OR b.title_norm LIKE ? OR b.author_norm LIKE ?)"
+        )
+        params.extend([like, like, like])
+
+    try:
+        count_sql = f"SELECT COUNT(*) FROM books b WHERE {' AND '.join(clauses)}"
+        total = conn.execute(count_sql, params).fetchone()[0]
+        order = "b.updated_at DESC" if sort == "updated_at" else "b.title_norm ASC"
+        sql = f"""
+            SELECT b.*, GROUP_CONCAT(t.name, ', ') AS tags
+            FROM books b
+            LEFT JOIN book_tags bt ON bt.book_id = b.id
+            LEFT JOIN tags t ON t.id = bt.tag_id
+            WHERE {' AND '.join(clauses)}
+            GROUP BY b.id
+            ORDER BY {order}
+            LIMIT ? OFFSET ?
+        """
+        rows = conn.execute(sql, params + [limit, offset]).fetchall()
+        conn.close()
+
+        items = [_row_to_item(dict(r)) for r in rows]
+        return {"items": items, "total": total, "limit": limit, "offset": offset}
+    except sqlite3.OperationalError:
+        conn.close()
+        return {"items": [], "total": 0, "limit": limit, "offset": offset}
+
+
+def get_book_detail(repo_path: str, book_id: int) -> dict[str, Any] | None:
+    root = Path(repo_path).expanduser().resolve()
+    conn = _open_db(root)
+    if conn is None:
+        return None
+    try:
+        row = conn.execute(
+            """SELECT b.*, GROUP_CONCAT(t.name, ', ') AS tags
+               FROM books b
+               LEFT JOIN book_tags bt ON bt.book_id = b.id
+               LEFT JOIN tags t ON t.id = bt.tag_id
+               WHERE b.id = ?
+               GROUP BY b.id""",
+            (book_id,),
+        ).fetchone()
+        conn.close()
+        if row is None:
+            return None
+        d = dict(row)
+        return {
+            "book_id": d.get("id"),
+            "title": d.get("title_norm") or d.get("title_raw") or "",
+            "author": d.get("author_norm") or "",
+            "file_name": d.get("file_name") or "",
+            "area": d.get("repo_area") or "",
+            "area_label": _area_label(d.get("repo_area")),
+            "current_path": d.get("current_path") or "",
+            "file_size": d.get("file_size"),
+            "char_count_clean": d.get("char_count_clean"),
+            "chapter_count": d.get("chapter_count") or 0,
+            "quality_score": d.get("quality_score"),
+            "quality_level": d.get("quality_level"),
+            "encoding": d.get("encoding"),
+            "tags": _split_tags(d.get("tags")),
+            "reading_status": d.get("reading_status") or "",
+            "group_name": "默认分组",
+            "updated_at": d.get("updated_at"),
+        }
+    except sqlite3.OperationalError:
+        conn.close()
+        return None
+
+
+def get_book_content(repo_path: str, book_id: int) -> dict[str, Any] | None:
+    root = Path(repo_path).expanduser().resolve()
+    detail = get_book_detail(repo_path, book_id)
+    if detail is None:
+        return None
+    path_str = detail.get("current_path") or ""
+    if not path_str:
+        return {"book_id": book_id, "title": detail["title"], "content": ""}
+    file_path = Path(path_str)
+    if not is_safe_path(root, file_path):
+        return {"book_id": book_id, "title": detail["title"], "content": "", "error": "路径不在仓库范围内"}
+    if not file_path.exists():
+        return {"book_id": book_id, "title": detail["title"], "content": "", "error": "文件不存在"}
+    try:
+        raw = file_path.read_bytes()
+        if len(raw) > MAX_CONTENT_BYTES:
+            raw = raw[:MAX_CONTENT_BYTES]
+        content = raw.decode("utf-8", errors="replace")
+        return {"book_id": book_id, "title": detail["title"], "content": content}
+    except OSError:
+        return {"book_id": book_id, "title": detail["title"], "content": "", "error": "读取文件失败"}
+
+
+def _row_to_item(d: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "book_id": d.get("id"),
+        "title": d.get("title_norm") or d.get("title_raw") or "",
+        "author": d.get("author_norm") or "",
+        "file_name": d.get("file_name") or "",
+        "area": d.get("repo_area") or "",
+        "area_label": _area_label(d.get("repo_area")),
+        "group_name": "默认分组",
+        "quality_score": d.get("quality_score"),
+        "chapter_count": d.get("chapter_count") or 0,
+        "reading_progress": 0.0,
+        "last_read_at": None,
+        "tags": _split_tags(d.get("tags")),
+        "status": "normal",
+    }
+
+
+def _open_db(repo: Path) -> sqlite3.Connection | None:
+    try:
+        return db_connect(repo)
+    except Exception:
+        return None
+
+
+def _area_label(area: str | None) -> str:
+    m = {"library": "小说库", "incoming": "新下载区", "archive": "归档区", "trash": "废弃区", "review_duplicates": "重复复核区"}
+    return m.get(area or "", area or "")
+
+
+def _split_tags(tags_str: str | None) -> list[str]:
+    if not tags_str:
+        return []
+    return [t.strip() for t in tags_str.split(",") if t.strip()]
