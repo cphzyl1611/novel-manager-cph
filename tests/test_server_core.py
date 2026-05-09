@@ -11,6 +11,7 @@ from novel_manager.server.services.group_service import create_group, list_group
 from novel_manager.server.services.issue_service import get_issues
 from novel_manager.server.services.repo_service import get_repo_status
 from novel_manager.server.services.sync_service import get_sync_status
+from novel_manager.server.services.upload_service import analyze_incoming, sanitize_filename, is_allowed_file, save_upload, scan_incoming, safe_incoming_path
 from novel_manager.server.services.task_service import get_updates_summary
 
 
@@ -27,9 +28,19 @@ def _make_repo() -> Path:
         CREATE TABLE IF NOT EXISTS books (
             id INTEGER PRIMARY KEY, current_path TEXT, file_name TEXT,
             repo_area TEXT, title_raw TEXT, title_norm TEXT, author_norm TEXT,
+            author_raw TEXT, raw_sha256 TEXT, clean_sha256 TEXT,
             quality_score REAL, quality_level TEXT, chapter_count INTEGER,
             char_count_clean INTEGER, file_size INTEGER, encoding TEXT,
-            reading_status TEXT, updated_at TEXT
+            reading_status TEXT, updated_at TEXT, status TEXT,
+            char_count_raw INTEGER, line_count_raw INTEGER, line_count_clean INTEGER,
+            mojibake_rate REAL, ad_line_count INTEGER, ad_line_rate REAL,
+            duplicate_chapter_count INTEGER, missing_chapter_count INTEGER,
+            chapter_order_error_count INTEGER, truncated_risk INTEGER
+        );
+        CREATE TABLE IF NOT EXISTS chapters (
+            id INTEGER PRIMARY KEY, book_id INTEGER, chapter_index INTEGER,
+            chapter_no INTEGER, chapter_type TEXT, title_raw TEXT, title_norm TEXT,
+            start_offset INTEGER, end_offset INTEGER, char_count INTEGER
         );
         CREATE TABLE IF NOT EXISTS tags (id INTEGER PRIMARY KEY, name TEXT);
         CREATE TABLE IF NOT EXISTS book_tags (book_id INTEGER, tag_id INTEGER);
@@ -39,7 +50,7 @@ def _make_repo() -> Path:
         );
     """)
     conn.executemany(
-        "INSERT INTO books VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO books (id, current_path, file_name, repo_area, title_raw, title_norm, author_norm, quality_score, quality_level, chapter_count, char_count_clean, file_size, encoding, reading_status, updated_at, author_raw, raw_sha256, clean_sha256, status, char_count_raw, line_count_raw, line_count_clean, mojibake_rate, ad_line_count, ad_line_rate, duplicate_chapter_count, missing_chapter_count, chapter_order_error_count, truncated_risk) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL)",
         [
             (1, str(root / "library" / "a.txt"), "a.txt", "library", "测试A", "测试A", "作者A", 85.0, "good", 50, 50000, 1024, "utf-8", None, "2026-01-01"),
             (2, str(root / "library" / "b.txt"), "b.txt", "library", "测试B", "测试B", "作者B", 60.0, "fair", 30, 30000, 2048, "utf-8", "正在读", "2026-01-02"),
@@ -383,6 +394,173 @@ class TestReadingProgress:
         r = list_books(str(repo))
         assert r["total"] == 3
 
+
+
+class TestUpload:
+    def test_sanitize_removes_illegal_chars(self):
+        assert ":" not in sanitize_filename("evil:file.txt")
+        assert ".." not in sanitize_filename("../escape.txt")
+
+    def test_sanitize_adds_txt_extension(self):
+        result = sanitize_filename("noext")
+        assert result.endswith(".txt")
+
+    def test_sanitize_empty_returns_generated_name(self):
+        result = sanitize_filename("")
+        assert result.endswith(".txt")
+
+    def test_is_allowed_rejects_non_txt(self):
+        assert is_allowed_file("a.txt") is True
+        assert is_allowed_file("a.pdf") is False
+        assert is_allowed_file("a.exe") is False
+
+    def test_save_upload_success(self):
+        repo = _make_repo()
+        r = save_upload(str(repo), "test.txt", b"hello world")
+        assert r["status"] == "success"
+        assert r["size"] == 11
+
+    def test_save_upload_rejects_non_txt(self):
+        repo = _make_repo()
+        r = save_upload(str(repo), "test.pdf", b"x")
+        assert r["status"] == "skipped"
+
+    def test_save_upload_creates_incoming(self):
+        repo = _make_repo()
+        import shutil
+        incoming = repo / "incoming"
+        if incoming.exists():
+            shutil.rmtree(incoming)
+        r = save_upload(str(repo), "test.txt", b"x")
+        assert r["status"] == "success"
+        assert incoming.exists()
+
+    def test_save_upload_renames_on_collision(self):
+        repo = _make_repo()
+        r1 = save_upload(str(repo), "dup.txt", b"a")
+        r2 = save_upload(str(repo), "dup.txt", b"b")
+        assert r1["status"] == "success"
+        assert r2["status"] == "success"
+        assert r1["saved_name"] != r2["saved_name"]
+
+    def test_save_upload_to_incoming_not_library(self):
+        repo = _make_repo()
+        r = save_upload(str(repo), "test.txt", b"x")
+        assert "incoming" in r["path"]
+        assert "library" not in r["path"]
+
+    def test_scan_incoming_works(self):
+        repo = _make_repo()
+        save_upload(str(repo), "scan1.txt", b"hello")
+        r = scan_incoming(str(repo))
+        assert r["found"] >= 1
+        repo = _make_repo()
+    def test_analyze_incoming_does_not_move_files(self):
+        repo = _make_repo()
+        save_upload(str(repo), "an_test.txt", b"test content")
+        scan_incoming(str(repo))
+        incoming = repo / "incoming"
+        before = set(p.name for p in incoming.glob("*.txt") if p.is_file())
+        analyze_incoming(str(repo))
+        after = set(p.name for p in incoming.glob("*.txt") if p.is_file())
+        assert before == after
+
+    def test_analyze_incoming_returns_summary(self):
+        repo = _make_repo()
+        save_upload(str(repo), "an_test2.txt", b"unique content for analysis")
+        scan_incoming(str(repo))
+        r = analyze_incoming(str(repo))
+        assert "summary" in r
+        assert "items" in r
+
+    def test_analyze_incoming_saves_json_report(self):
+        repo = _make_repo()
+        save_upload(str(repo), "an_test3.txt", b"report test content")
+        scan_incoming(str(repo))
+        analyze_incoming(str(repo))
+        reports = list((repo / "reports" / "incoming").glob("incoming_analysis_*.json"))
+        assert len(reports) >= 1
+
+    def test_analyze_incoming_empty_when_no_incoming(self):
+        repo = _make_repo()
+        import sqlite3 as _sql
+        conn = _sql.connect(str(repo / "db" / "novel_repo.sqlite"))
+        conn.execute("DELETE FROM books WHERE repo_area = 'incoming'")
+        conn.commit(); conn.close()
+        r = analyze_incoming(str(repo))
+        assert r["summary"]["incoming_count"] == 0
+
+    def test_analyze_incoming_no_crash_on_invalid(self):
+        r = analyze_incoming("/nonexistent/path/xyz")
+        assert "summary" in r
+
+
+        repo = _make_repo()
+        save_upload(str(repo), "scan1.txt", b"hello")
+        r = scan_incoming(str(repo))
+        assert r["found"] >= 1
+
+class TestChapters:
+    def test_returns_chapters_list(self):
+        repo = _make_repo()
+        from novel_manager.server.services.book_service import get_book_chapters
+        r = get_book_chapters(str(repo), 1)
+        assert r is not None
+        assert r["book_id"] == 1
+        assert "chapters" in r
+        assert len(r["chapters"]) >= 1
+
+    def test_returns_default_when_no_chapters(self):
+        repo = _make_repo()
+        (repo / "incoming" / "c.txt").write_text("这是没有章节标记的普通文本", encoding="utf-8")
+        from novel_manager.server.services.book_service import get_book_chapters
+        r = get_book_chapters(str(repo), 3)
+        assert r["chapters"][0]["title"] == "全文"
+        assert r["chapters"][0]["index"] == 0
+        assert r["chapters"][0]["start_offset"] == 0
+
+    def test_nonexistent_book_returns_none(self):
+        repo = _make_repo()
+        from novel_manager.server.services.book_service import get_book_chapters
+        r = get_book_chapters(str(repo), 999)
+        assert r is None
+
+    def test_chapters_have_valid_offsets(self):
+        repo = _make_repo()
+        from novel_manager.server.services.book_service import get_book_chapters
+        r = get_book_chapters(str(repo), 1)
+        for c in r["chapters"]:
+            assert c["start_offset"] >= 0
+            assert c["end_offset"] >= c["start_offset"]
+
+    def test_content_api_still_works(self):
+        repo = _make_repo()
+        r = get_book_content(str(repo), 1)
+        assert r is not None
+        assert "content" in r
+
+    def test_progress_saves_chapter_index(self):
+        repo = _make_repo()
+        from novel_manager.server.services.progress_service import save_progress, get_progress
+        save_progress(str(repo), 1, 0.5, 1000, current_chapter_index=3)
+        p = get_progress(str(repo), 1)
+        assert p is not None
+        assert p["current_chapter_index"] == 3
+
+    def test_chapters_from_parsed_txt(self):
+        repo = _make_repo()
+        import sqlite3 as _sql
+        multi = "第一章 开始\n正文内容\n第二章 发展\n更多内容\n第三章 结束\n结尾"
+        (repo / "library" / "a.txt").write_text(multi, encoding="utf-8")
+        conn = _sql.connect(str(repo / "db" / "novel_repo.sqlite"))
+        conn.execute("DELETE FROM chapters WHERE book_id = 1")
+        conn.commit(); conn.close()
+        from novel_manager.server.services.book_service import get_book_chapters
+        r = get_book_chapters(str(repo), 1)
+        assert len(r["chapters"]) >= 3
+        titles = [c["title"] for c in r["chapters"]]
+        assert any("第一章" in t for t in titles)
+        assert any("第二章" in t for t in titles)
     def test_content_api_unaffected(self):
         repo = _make_repo()
         from novel_manager.server.services.progress_service import save_progress

@@ -807,6 +807,13 @@ python server.py --repo "D:/NovelRepo_Test" --host 0.0.0.0    # 开放局域网
 
 所有设置在浏览器中保存（localStorage），下次打开沿用。当前为 Web/PWA 原型。
 
+### 手机上传新书
+
+手机浏览器访问后，点击侧边栏"上传新书"，选择本地 TXT 文件上传：
+- 文件保存到 incoming（新下载区），不覆盖已有小说
+- 支持多文件选择；非 TXT 自动跳过；同名自动改名
+- 上传后可立即扫描新下载区或进入更新检测
+
 详见 [docs/dual_end_novel_app_architecture.md](docs/dual_end_novel_app_architecture.md)。
 #   n o v e l - m a n a g e r  
  

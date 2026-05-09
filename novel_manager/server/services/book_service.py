@@ -132,6 +132,45 @@ def get_book_content(repo_path: str, book_id: int) -> dict[str, Any] | None:
         return {"book_id": book_id, "title": detail["title"], "content": "", "error": "读取文件失败"}
 
 
+def get_book_chapters(repo_path: str, book_id: int) -> dict[str, Any] | None:
+    root = Path(repo_path).expanduser().resolve()
+    detail = get_book_detail(repo_path, book_id)
+    if detail is None:
+        return None
+    title = detail["title"]
+    ch = _load_chapters_from_db(root, book_id)
+    if ch:
+        return {"book_id": book_id, "title": title, "chapters": ch}
+    content_result = get_book_content(repo_path, book_id)
+    text_len = 0
+    if content_result and content_result.get("content"):
+        try:
+            from ...chapter_parser import parse_chapters
+            parsed = parse_chapters(content_result["content"])
+            text_len = len(content_result["content"])
+            if parsed.chapters:
+                ch = [{"index": c["chapter_index"], "title": c["title_raw"], "start_offset": c["start_offset"], "end_offset": c["end_offset"]} for c in parsed.chapters]
+                return {"book_id": book_id, "title": title, "chapters": ch}
+        except Exception:
+            pass
+    return {"book_id": book_id, "title": title, "chapters": [{"index": 0, "title": "全文", "start_offset": 0, "end_offset": text_len}]}
+
+
+def _load_chapters_from_db(repo: Path, book_id: int) -> list[dict[str, Any]]:
+    try:
+        conn = _open_db(repo)
+        if conn is None:
+            return []
+        rows = conn.execute(
+            "SELECT chapter_index, title_raw, start_offset, end_offset FROM chapters WHERE book_id = ? ORDER BY chapter_index",
+            (book_id,),
+        ).fetchall()
+        conn.close()
+        return [{"index": r["chapter_index"], "title": r["title_raw"], "start_offset": r["start_offset"], "end_offset": r["end_offset"]} for r in rows]
+    except Exception:
+        return []
+
+
 def _row_to_item(d: dict[str, Any]) -> dict[str, Any]:
     progress = d.get("reading_progress")
     return {

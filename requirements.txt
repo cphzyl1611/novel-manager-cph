@@ -8,3 +8,4 @@ pytest
 PySide6
 fastapi
 uvicorn
+python-multipart

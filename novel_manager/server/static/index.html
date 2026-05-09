@@ -20,6 +20,7 @@
   <h3>菜单</h3>
   <a href="#" class="active" onclick="showPage('home');toggleDrawer()">🏠 首页</a>
   <a href="#" onclick="showPage('updates');toggleDrawer()">🔄 小说更新</a>
+  <a href="#" class="active" onclick="showPage('upload');toggleDrawer()">📤 上传新书</a>
   <a href="#" onclick="showPage('home');toggleDrawer()">📋 重复处理</a>
   <a href="#" onclick="showPage('home');toggleDrawer()">📁 分组</a>
   <a href="#" onclick="showPage('home');toggleDrawer()">⚙️ 设置</a>
@@ -34,11 +35,23 @@
     <div class="reader-title" id="readerTitle"></div>
     <div class="reader-encoding" id="readerEncoding" style="display:none"></div>
     <span class="reader-progress" id="readerProgressText"></span>
+    <button class="toc-btn" id="tocBtn" onclick="toggleToc()" title="目录">☰</button>
     <button class="settings-btn" id="settingsBtn" onclick="toggleSettings()">⚙</button>
   </div>
   <div class="reader-warning" id="readerWarning" style="display:none"></div>
   <div class="reader-toast" id="readerToast"></div>
   <div class="reader-content" id="readerContent" onclick="onReaderTap()">加载中...</div>
+
+  <!-- TOC panel -->
+  <div class="toc-overlay" id="tocOverlay" onclick="toggleToc()"></div>
+  <div class="toc-panel" id="tocPanel">
+    <div class="toc-header">
+      <span class="toc-title">目录</span>
+      <span class="toc-count" id="tocCount"></span>
+      <button class="toc-close" onclick="toggleToc()">✕</button>
+    </div>
+    <div class="toc-list" id="tocList"></div>
+  </div>
 
   <!-- settings panel INSIDE reader -->
   <div class="settings-overlay" id="settingsOverlay" onclick="toggleSettings()"></div>
@@ -78,9 +91,36 @@
   </div>
 </div>
 <div class="updates-page" id="updatesPage">
-  <h2 style="margin-bottom:12px">🔄 更新候选</h2>
+  <h2 style="margin-bottom:4px;padding:0 16px">🔄 小说更新</h2>
+  <p class="updates-disclaimer">本页面只检测和生成建议，不会自动替换、删除或移动任何小说文件。</p>
+  <div class="updates-actions">
+    <button class="btn-primary" onclick="doScanIncoming()" id="btnScanIncoming">🔍 扫描新下载区</button>
+    <button class="btn-primary" onclick="doAnalyzeIncoming()" id="btnAnalyzeIncoming" style="background:var(--accent)">📊 检测新下载小说</button>
+  </div>
+  <div class="updates-summary" id="updatesSummary" style="display:none"></div>
   <div id="updatesContent"><div class="loading"><div class="spinner"></div></div></div>
 </div>
+<div class="upload-page" id="uploadPage">
+  <h2 style="margin-bottom:4px;padding:0 16px">📤 上传新下载的小说</h2>
+  <p style="color:var(--muted);font-size:13px;padding:0 16px;margin-bottom:16px">文件会保存到"新下载区"，不会覆盖或替换已有小说。</p>
+  <div class="upload-zone" id="uploadZone">
+    <div class="upload-icon">📂</div>
+    <div class="upload-text">点击选择 TXT 文件</div>
+    <div class="upload-hint">支持多选，单文件最大 50MB</div>
+    <input type="file" id="uploadInput" accept=".txt" multiple style="display:none" onchange="onFilesSelected()">
+  </div>
+  <div class="upload-list" id="uploadList"></div>
+  <div class="upload-actions" id="uploadActions" style="display:none">
+    <button class="btn-primary" id="uploadBtn" onclick="doUpload()" style="padding:12px 28px;font-size:15px">上传到新下载区</button>
+  </div>
+  <div class="upload-result" id="uploadResult"></div>
+  <div class="upload-next" id="uploadNext" style="display:none">
+    <button class="btn-primary" onclick="scanIncoming()" style="padding:12px 24px;font-size:15px">🔍 立即扫描新下载区</button>
+    <button class="btn-cancel" onclick="showPage('updates')" style="padding:12px 24px;font-size:15px;background:var(--card);border:1px solid var(--border);border-radius:8px">📋 去更新检测</button>
+  </div>
+  <div class="scan-result" id="scanResult"></div>
+</div>
+
 <div class="toast" id="toast"></div>
 <div class="modal" id="groupModal">
   <div class="modal-box">

@@ -11,3 +11,20 @@ venv/
 *.sqlite
 dist/
 build/
+
+# data directories
+reports/
+logs/
+cache/
+library/
+incoming/
+archive/
+trash/
+review_duplicates/
+exports/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
