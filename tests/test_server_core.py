@@ -13,6 +13,7 @@ from novel_manager.server.services.repo_service import get_repo_status
 from novel_manager.server.services.sync_service import get_sync_status
 from novel_manager.server.services.upload_service import analyze_incoming, sanitize_filename, is_allowed_file, save_upload, scan_incoming, safe_incoming_path
 from novel_manager.server.services.incoming_service import compare_books, import_to_library, move_to_review_duplicates
+from novel_manager.server.services.operation_service import get_operation, list_operations, record_operation, restore_operation
 from novel_manager.server.services.task_service import get_updates_summary
 
 
@@ -494,6 +495,81 @@ class TestUpload:
     def test_analyze_incoming_no_crash_on_invalid(self):
         r = analyze_incoming("/nonexistent/path/xyz")
         assert "summary" in r
+
+
+class TestOperationRecords:
+    def test_table_auto_created(self):
+        repo = _make_repo()
+        import sqlite3 as _sql
+        record_operation(str(repo), "import_to_library", 1, "测试", "test.txt", "/src/a.txt", "/dst/a.txt", "incoming", "library", reversible=True)
+        conn = _sql.connect(str(repo / "db" / "novel_repo.sqlite"))
+        tables = [r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
+        conn.close()
+        assert "web_operation_records" in tables
+
+    def test_record_written(self):
+        repo = _make_repo()
+        op_id = record_operation(str(repo), "import_to_library", 1, "测试", "test.txt", "/src/a.txt", "/dst/a.txt", "incoming", "library", reversible=True)
+        assert op_id
+        r = get_operation(str(repo), op_id)
+        assert r is not None
+        assert r["operation_type"] == "import_to_library"
+        assert r["reversible"] is True
+
+    def test_list_operations(self):
+        repo = _make_repo()
+        record_operation(str(repo), "import_to_library", 1, "A", "a.txt", "/s/a.txt", "/t/a.txt", "incoming", "library", reversible=True)
+        record_operation(str(repo), "move_to_review_duplicates", 2, "B", "b.txt", "/s/b.txt", "/t/b.txt", "incoming", "review_duplicates", reversible=True)
+        r = list_operations(str(repo))
+        assert r["total"] >= 2
+
+    def test_restore_import_to_library(self):
+        repo = _make_repo()
+        save_upload(str(repo), "restore_test.txt", b"restore")
+        from novel_manager.server.services.upload_service import scan_incoming
+        scan_incoming(str(repo))
+        import sqlite3 as _sql
+        conn = _sql.connect(str(repo / "db" / "novel_repo.sqlite"))
+        row = conn.execute("SELECT id FROM books WHERE repo_area = 'incoming' ORDER BY id DESC LIMIT 1").fetchone()
+        conn.close()
+        r = import_to_library(str(repo), row[0])
+        assert r["ok"] is True
+        # Find the operation record
+        ops = list_operations(str(repo), op_type="import_to_library")
+        assert ops["total"] >= 1
+        op_id = ops["items"][0]["operation_id"]
+        # Restore it
+        r2 = restore_operation(str(repo), op_id)
+        assert r2["ok"] is True
+        assert r2["source_path"] == r["target_path"]
+
+    def test_restore_updates_repo_area(self):
+        repo = _make_repo()
+        save_upload(str(repo), "restore2.txt", b"r2")
+        from novel_manager.server.services.upload_service import scan_incoming
+        scan_incoming(str(repo))
+        import sqlite3 as _sql
+        conn = _sql.connect(str(repo / "db" / "novel_repo.sqlite"))
+        row = conn.execute("SELECT id FROM books WHERE repo_area = 'incoming' ORDER BY id DESC LIMIT 1").fetchone()
+        conn.close()
+        import_to_library(str(repo), row[0])
+        ops = list_operations(str(repo), op_type="import_to_library")
+        restore_operation(str(repo), ops["items"][0]["operation_id"])
+        conn = _sql.connect(str(repo / "db" / "novel_repo.sqlite"))
+        area = conn.execute("SELECT repo_area FROM books WHERE id = ?", (row[0],)).fetchone()[0]
+        conn.close()
+        assert area == "incoming"
+
+    def test_cannot_restore_twice(self):
+        repo = _make_repo()
+        record_operation(str(repo), "import_to_library", 1, "T", "t.txt", "/s/t.txt", "/dst/t.txt", "incoming", "library", reversible=True)
+        ops = list_operations(str(repo), op_type="import_to_library")
+        op_id = ops["items"][0]["operation_id"]
+        # First restore: file exists at target path (book 1's file)
+        r1 = restore_operation(str(repo), op_id)
+        # Second restore should fail
+        r2 = restore_operation(str(repo), op_id)
+        assert r2.get("ok") is False
 
 class TestIncomingActions:
     def test_import_to_library_success(self):

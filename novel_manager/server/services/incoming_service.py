@@ -6,6 +6,7 @@ from typing import Any
 
 from ...db import connect as db_connect
 from ...utils import ensure_dir, now_ts
+from .operation_service import record_operation
 
 
 def _get_book(conn, book_id: int) -> dict | None:
@@ -65,6 +66,8 @@ def import_to_library(repo_path: str, book_id: int) -> dict[str, Any]:
         conn.close(); return {"ok": False, "error": str(e)}
     _update_location(conn, book_id, "library", target)
     _write_op(root, "import_to_library", book_id, str(source), str(target))
+    title = book.get("title_norm") or book.get("title_raw") or book.get("file_name", "")
+    record_operation(repo_path, "import_to_library", book_id, title, target.name, str(source), str(target), "incoming", "library", reversible=True)
     conn.close()
     return {"ok": True, "action": "import_to_library", "book_id": book_id, "source_path": str(source), "target_path": str(target), "message": "已加入书架"}
 
@@ -89,6 +92,8 @@ def move_to_review_duplicates(repo_path: str, book_id: int) -> dict[str, Any]:
         conn.close(); return {"ok": False, "error": str(e)}
     _update_location(conn, book_id, "review_duplicates", target)
     _write_op(root, "move_to_review_duplicates", book_id, str(source), str(target))
+    title = book.get("title_norm") or book.get("title_raw") or book.get("file_name", "")
+    record_operation(repo_path, "move_to_review_duplicates", book_id, title, target.name, str(source), str(target), "incoming", "review_duplicates", reversible=True)
     conn.close()
     return {"ok": True, "action": "move_to_review_duplicates", "book_id": book_id, "source_path": str(source), "target_path": str(target), "message": "已移入重复复核区"}
 

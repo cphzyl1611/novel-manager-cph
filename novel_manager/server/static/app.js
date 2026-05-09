@@ -11,7 +11,7 @@ function sleep(ms){return new Promise(function(r){setTimeout(r,ms)})}
 
 // ======== DRAWER ========
 function toggleDrawer(){eid('drawer').classList.toggle('open');eid('overlay').classList.toggle('open')}
-function showPage(page){state.currentPage=page;eid('updatesPage').classList.toggle('open',page==='updates');eid('uploadPage').classList.toggle('open',page==='upload');eid('shelf').style.display=(page==='home')?'':'none';eid('groupTabs').style.display=(page==='home')?'':'none';if(page==='updates')loadUpdates()}
+function showPage(page){state.currentPage=page;eid('updatesPage').classList.toggle('open',page==='updates');eid('uploadPage').classList.toggle('open',page==='upload');eid('opsPage').classList.toggle('open',page==='ops');eid('shelf').style.display=(page==='home')?'':'none';eid('groupTabs').style.display=(page==='home')?'':'none';if(page==='updates')loadUpdates()}
 
 // ======== READER SETTINGS (localStorage) ========
 function loadReaderSettings(){try{return JSON.parse(localStorage.getItem('readerSettings'))||{}}catch(e){return{}}}
@@ -382,6 +382,38 @@ async function scanIncoming(){
 // Make upload zone clickable
 eid('uploadZone').addEventListener('click',function(){eid('uploadInput').click()});
 
+// ======== OPERATIONS ========
+async function loadOps(filter){
+  var url='/api/operations?limit=50';if(filter)url+='&'+filter;
+  var d=await api(url);var el=eid('opsContent');
+  if(!d||!d.items||d.items.length===0){el.innerHTML='<div class="empty-state">暂无操作记录</div>';return}
+  var h='';
+  for(var i=0;i<d.items.length;i++){
+    var it=d.items[i],rev=it.reversible&&!it.restored;
+    h+='<div class="analysis-card'+(it.restored?' reject':'')+'">'
+      +'<div class="ac-head"><span class="ac-badge'+(it.restored?' reject':' new')+'">'+esc(it.operation_label)+'</span>'
+      +(it.restored?'<span class="ac-badge reject" style="margin-left:4px">已恢复</span>':'')
+      +'</div>'
+      +'<div class="ac-title">'+esc(it.title||it.file_name||'')+'</div>'
+      +'<div class="ac-meta">'+esc(it.source_area)+' → '+esc(it.target_area)+'</div>'
+      +'<div class="ac-meta">'+esc(it.created_at||'')+'</div>'
+      +'<div class="ac-actions">';
+    if(rev)h+='<button class="btn-sm btn-action" onclick="doRestore(''+it.operation_id+'')">恢复到新下载区</button>';
+    h+='</div></div>'
+  }
+  el.innerHTML=h
+}
+
+async function doRestore(opId){
+  if(!confirm('确认恢复？
+
+这会把该小说从当前区域移回新下载区。
+不会删除文件，也不会覆盖已有文件。
+如果新下载区已有同名文件，会自动改名。'))return;
+  var r=await postApi('/api/operations/'+opId+'/restore');
+  if(!r||!r.ok){toast(r&&r.error||'恢复失败');return}
+  toast('已恢复到新下载区');loadOps('')
+}
 // ======== INIT ========
 async function init(){var h=await api('/api/health');if(h&&h.ok)eid('drawerStatus').textContent='仓库已连接';loadGroups();loadBooks()}
 init();

@@ -21,7 +21,7 @@
   <a href="#" class="active" onclick="showPage('home');toggleDrawer()">🏠 首页</a>
   <a href="#" onclick="showPage('updates');toggleDrawer()">🔄 小说更新</a>
   <a href="#" class="active" onclick="showPage('upload');toggleDrawer()">📤 上传新书</a>
-  <a href="#" onclick="showPage('home');toggleDrawer()">📋 重复处理</a>
+  <a href="#" onclick="showPage('ops');toggleDrawer()">📋 操作记录</a>
   <a href="#" onclick="showPage('home');toggleDrawer()">📁 分组</a>
   <a href="#" onclick="showPage('home');toggleDrawer()">⚙️ 设置</a>
   <div style="margin-top:auto;font-size:11px;color:var(--muted)"><div id="drawerStatus">未连接</div></div>
@@ -125,6 +125,16 @@
   <div class="modal-box" id="compareContent"></div>
 </div>
 
+<div class="ops-page" id="opsPage">
+  <h2 style="margin-bottom:4px;padding:0 16px">📋 操作记录</h2>
+  <p class="updates-disclaimer">这里显示最近的整理操作。部分安全操作可以恢复。恢复不会删除文件，也不会覆盖已有文件。</p>
+  <div class="updates-actions">
+    <button class="btn-primary" onclick="loadOps('')">全部</button>
+    <button class="btn-primary" onclick="loadOps('reversible=1')" style="background:#856404">可恢复</button>
+    <button class="btn-primary" onclick="loadOps('reversible=1&restored=0')" style="background:#2980b9">待恢复</button>
+  </div>
+  <div id="opsContent"><div class="loading"><div class="spinner"></div></div></div>
+</div>
 <div class="toast" id="toast"></div>
 <div class="modal" id="groupModal">
   <div class="modal-box">
