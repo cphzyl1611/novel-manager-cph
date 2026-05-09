@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from .api import books, groups, health, issues, repo, sync, updates
+from .api import books, groups, health, incoming, issues, repo, sync, updates
 from .config import APP_NAME, APP_VERSION
 
 
@@ -28,6 +28,7 @@ def create_app(repo_path: str) -> FastAPI:
     app.include_router(issues.router)
     app.include_router(updates.router)
     app.include_router(sync.router)
+    app.include_router(incoming.router)
 
     static_dir = Path(__file__).parent / "static"
     if static_dir.exists():

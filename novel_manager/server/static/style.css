@@ -148,6 +148,12 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
 .risk-tag{display:inline-block;padding:1px 6px;background:var(--bg);border-radius:4px;margin:1px;font-size:10px}
 .ac-actions{display:flex;gap:6px;flex-wrap:wrap}
 .ac-actions .btn-sm{padding:6px 12px;border-radius:6px;border:1px solid var(--border);background:var(--card);font-size:12px;cursor:pointer}
+.ac-actions .btn-action{background:var(--accent2);color:#fff;border-color:var(--accent2)}
+
+.cmp-row{background:var(--bg);border-radius:8px;padding:10px 12px;margin-bottom:6px;font-size:13px;line-height:1.6}
+.cmp-row div:first-child{font-weight:500;margin-bottom:2px}
+.cmp-diff{font-size:13px;padding:6px 12px;margin:6px 0;background:#fff3cd;border-radius:6px;color:#856404}
+.cmp-msg{font-size:13px;color:var(--muted);line-height:1.5}
 
 /* Generic toast */
 .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#333;color:#fff;padding:10px 24px;border-radius:20px;font-size:14px;z-index:400;opacity:0;pointer-events:none;transition:opacity .3s}

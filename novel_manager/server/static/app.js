@@ -279,12 +279,39 @@ function renderAnalysis(){
     if(it.matched_title)h+='<div class="ac-match">匹配: '+esc(it.matched_title)+'</div>';
     h+='<div class="ac-reason">'+esc(it.reason)+'</div>';
     if(it.risks&&it.risks.length>0)h+='<div class="ac-risks">风险: '+it.risks.map(function(r){return'<span class="risk-tag">'+esc(r)+'</span>'}).join(' ')+'</div>';
-    h+='<div class="ac-actions"><button class="btn-sm" onclick="openBook('+it.incoming_book_id+',\''+esc(it.incoming_title)+'\')">打开新书</button>';
+    h+='<div class="ac-actions"><button class="btn-sm" onclick="openBook('+it.incoming_book_id+',\''+esc(it.incoming_title)+'\')">打开</button>';
     if(it.matched_book_id)h+='<button class="btn-sm" onclick="openBook('+it.matched_book_id+',\''+esc(it.matched_title||'')+'\')">打开旧书</button>';
+    if(it.classification==='new_book')h+='<button class="btn-sm btn-action" onclick="doImport('+it.incoming_book_id+')">加入书架</button>';
+    if(it.classification==='exact_duplicate')h+='<button class="btn-sm btn-action" onclick="doMoveReview('+it.incoming_book_id+')">移入重复复核区</button>';
+    if(it.matched_book_id)h+='<button class="btn-sm" onclick="showCompare('+it.incoming_book_id+','+it.matched_book_id+')">对比</button>';
     h+='</div></div>'
   }
   c.innerHTML=h
 }
+
+async function doImport(bookId){
+  if(!confirm('加入书架？\n\n将把这本新书从新下载区加入小说库。\n不会覆盖已有文件，也不会修改 TXT 内容。'))return;
+  var r=await postApi('/api/incoming/'+bookId+'/import-to-library');
+  if(!r||!r.ok){toast(r&&r.error||'操作失败');return}
+  toast('已加入书架');loadUpdates()
+}
+async function doMoveReview(bookId){
+  if(!confirm('移入重复复核区？\n\n将只把新下载区的这份文件移入重复复核区，\n不会删除任何文件，也不会影响小说库中已有版本。'))return;
+  var r=await postApi('/api/incoming/'+bookId+'/move-to-review-duplicates');
+  if(!r||!r.ok){toast(r&&r.error||'操作失败');return}
+  toast('已移入重复复核区');loadUpdates()
+}
+async function showCompare(b1,b2){
+  var d=await api('/api/incoming/'+b1+'/compare/'+b2);if(!d||!d.ok){toast('获取对比失败');return}
+  var h='<h3 style="margin-bottom:8px">新旧对比</h3>';
+  h+='<div class="cmp-row"><div><strong>新下载:</strong> '+esc(d.incoming.title)+'</div><div>'+d.incoming.chapter_count+'章 | '+formatSize(d.incoming.char_count_clean||0)+' | '+d.incoming.quality_score+'分</div></div>';
+  h+='<div class="cmp-row"><div><strong>已有书:</strong> '+esc(d.matched.title)+'</div><div>'+d.matched.chapter_count+'章 | '+formatSize(d.matched.char_count_clean||0)+' | '+d.matched.quality_score+'分</div></div>';
+  h+='<div class="cmp-diff">章节差: '+(d.diff.chapter_delta>0?'+':'')+d.diff.chapter_delta+' | 字数差: '+(d.diff.char_count_delta>0?'+':'')+formatSize(d.diff.char_count_delta||0)+' | 质量差: '+(d.diff.quality_delta>0?'+':'')+d.diff.quality_delta+'</div>';
+  h+='<div class="cmp-msg">'+esc(d.recommendation.message)+'</div>';
+  h+='<button class="btn-primary" onclick="closeCompare()" style="margin-top:12px">关闭</button>';
+  eid('compareContent').innerHTML=h;eid('compareModal').classList.add('open')
+}
+function closeCompare(){eid('compareModal').classList.remove('open')}
 
 function loadUpdates(){doAnalyzeIncoming()}
 

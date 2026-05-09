@@ -12,6 +12,7 @@ from novel_manager.server.services.issue_service import get_issues
 from novel_manager.server.services.repo_service import get_repo_status
 from novel_manager.server.services.sync_service import get_sync_status
 from novel_manager.server.services.upload_service import analyze_incoming, sanitize_filename, is_allowed_file, save_upload, scan_incoming, safe_incoming_path
+from novel_manager.server.services.incoming_service import compare_books, import_to_library, move_to_review_duplicates
 from novel_manager.server.services.task_service import get_updates_summary
 
 
@@ -493,6 +494,96 @@ class TestUpload:
     def test_analyze_incoming_no_crash_on_invalid(self):
         r = analyze_incoming("/nonexistent/path/xyz")
         assert "summary" in r
+
+class TestIncomingActions:
+    def test_import_to_library_success(self):
+        repo = _make_repo()
+        result = save_upload(str(repo), "import_test.txt", b"test content")
+        scan_incoming(str(repo))
+        import sqlite3 as _sql
+        conn = _sql.connect(str(repo / "db" / "novel_repo.sqlite"))
+        row = conn.execute("SELECT id FROM books WHERE repo_area = 'incoming' ORDER BY id DESC LIMIT 1").fetchone()
+        conn.close()
+        assert row is not None
+        r = import_to_library(str(repo), row[0])
+        assert r["ok"] is True
+        assert "library" in r["target_path"]
+
+    def test_import_updates_repo_area(self):
+        repo = _make_repo()
+        save_upload(str(repo), "area_test.txt", b"test")
+        scan_incoming(str(repo))
+        import sqlite3 as _sql
+        conn = _sql.connect(str(repo / "db" / "novel_repo.sqlite"))
+        row = conn.execute("SELECT id FROM books WHERE repo_area = 'incoming' ORDER BY id DESC LIMIT 1").fetchone()
+        conn.close()
+        bid = row[0]
+        r = import_to_library(str(repo), bid)
+        conn = _sql.connect(str(repo / "db" / "novel_repo.sqlite"))
+        area = conn.execute("SELECT repo_area FROM books WHERE id = ?", (bid,)).fetchone()[0]
+        conn.close()
+        assert area == "library"
+
+    def test_import_rejects_non_incoming(self):
+        repo = _make_repo()
+        r = import_to_library(str(repo), 1)
+        assert r.get("ok") is False
+
+    def test_import_rejects_nonexistent(self):
+        repo = _make_repo()
+        r = import_to_library(str(repo), 99999)
+        assert r.get("ok") is False
+
+    def test_move_to_review_duplicates_success(self):
+        repo = _make_repo()
+        save_upload(str(repo), "revdup_test.txt", b"dup content")
+        scan_incoming(str(repo))
+        import sqlite3 as _sql
+        conn = _sql.connect(str(repo / "db" / "novel_repo.sqlite"))
+        row = conn.execute("SELECT id FROM books WHERE repo_area = 'incoming' ORDER BY id DESC LIMIT 1").fetchone()
+        conn.close()
+        r = move_to_review_duplicates(str(repo), row[0])
+        assert r["ok"] is True
+        assert "review_duplicates" in r["target_path"]
+
+    def test_move_to_review_updates_repo_area(self):
+        repo = _make_repo()
+        save_upload(str(repo), "rd2_test.txt", b"rd2")
+        scan_incoming(str(repo))
+        import sqlite3 as _sql
+        conn = _sql.connect(str(repo / "db" / "novel_repo.sqlite"))
+        row = conn.execute("SELECT id FROM books WHERE repo_area = 'incoming' ORDER BY id DESC LIMIT 1").fetchone()
+        conn.close()
+        move_to_review_duplicates(str(repo), row[0])
+        conn = _sql.connect(str(repo / "db" / "novel_repo.sqlite"))
+        area = conn.execute("SELECT repo_area FROM books WHERE id = ?", (row[0],)).fetchone()[0]
+        conn.close()
+        assert area == "review_duplicates"
+
+    def test_move_rejects_non_incoming(self):
+        repo = _make_repo()
+        r = move_to_review_duplicates(str(repo), 1)
+        assert r.get("ok") is False
+
+    def test_compare_returns_diff(self):
+        repo = _make_repo()
+        r = compare_books(1, 2, str(repo))
+        assert r.get("ok") is True
+        assert "diff" in r
+        assert "incoming" in r
+
+    def test_compare_nonexistent_fails(self):
+        repo = _make_repo()
+        r = compare_books(99999, 1, str(repo))
+        assert r.get("ok") is False
+
+    def test_no_permanent_delete_calls(self):
+        from novel_manager.server.services import incoming_service
+        src = open(incoming_service.__file__, 'r', encoding='utf-8').read()
+        assert "os.remove" not in src
+        assert "os.unlink" not in src
+        assert "shutil.rmtree" not in src
+
 
 
         repo = _make_repo()
