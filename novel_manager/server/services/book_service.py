@@ -21,6 +21,7 @@ def list_books(
     if conn is None:
         return {"items": [], "total": 0, "limit": limit, "offset": offset}
 
+    _ensure_progress_table(root)
     clauses = ["1=1"]
     params: list[Any] = []
     if area and area != "all":
@@ -38,10 +39,13 @@ def list_books(
         total = conn.execute(count_sql, params).fetchone()[0]
         order = "b.updated_at DESC" if sort == "updated_at" else "b.title_norm ASC"
         sql = f"""
-            SELECT b.*, GROUP_CONCAT(t.name, ', ') AS tags
+            SELECT b.*, GROUP_CONCAT(t.name, ', ') AS tags,
+                   rp.progress_ratio AS reading_progress,
+                   rp.updated_at AS progress_updated_at
             FROM books b
             LEFT JOIN book_tags bt ON bt.book_id = b.id
             LEFT JOIN tags t ON t.id = bt.tag_id
+            LEFT JOIN reading_progress rp ON rp.book_id = b.id AND rp.device_id = 'web'
             WHERE {' AND '.join(clauses)}
             GROUP BY b.id
             ORDER BY {order}
@@ -114,16 +118,22 @@ def get_book_content(repo_path: str, book_id: int) -> dict[str, Any] | None:
     if not file_path.exists():
         return {"book_id": book_id, "title": detail["title"], "content": "", "error": "文件不存在"}
     try:
-        raw = file_path.read_bytes()
-        if len(raw) > MAX_CONTENT_BYTES:
-            raw = raw[:MAX_CONTENT_BYTES]
-        content = raw.decode("utf-8", errors="replace")
-        return {"book_id": book_id, "title": detail["title"], "content": content}
+        from .text_reader import read_text_safely
+
+        result = read_text_safely(file_path, max_bytes=MAX_CONTENT_BYTES)
+        return {
+            "book_id": book_id,
+            "title": detail["title"],
+            "content": result["text"],
+            "encoding": result["encoding"],
+            "decode_warning": result.get("decode_warning"),
+        }
     except OSError:
         return {"book_id": book_id, "title": detail["title"], "content": "", "error": "读取文件失败"}
 
 
 def _row_to_item(d: dict[str, Any]) -> dict[str, Any]:
+    progress = d.get("reading_progress")
     return {
         "book_id": d.get("id"),
         "title": d.get("title_norm") or d.get("title_raw") or "",
@@ -134,11 +144,33 @@ def _row_to_item(d: dict[str, Any]) -> dict[str, Any]:
         "group_name": "默认分组",
         "quality_score": d.get("quality_score"),
         "chapter_count": d.get("chapter_count") or 0,
-        "reading_progress": 0.0,
-        "last_read_at": None,
+        "reading_progress": float(progress) if progress is not None else 0.0,
+        "last_read_at": d.get("progress_updated_at") or None,
         "tags": _split_tags(d.get("tags")),
         "status": "normal",
     }
+
+
+def _ensure_progress_table(repo: Path) -> None:
+    try:
+        conn = db_connect(repo)
+        conn.execute("PRAGMA foreign_keys = ON")
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS reading_progress (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                book_id INTEGER NOT NULL,
+                device_id TEXT NOT NULL DEFAULT 'web',
+                progress_ratio REAL NOT NULL DEFAULT 0,
+                scroll_position INTEGER NOT NULL DEFAULT 0,
+                updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+                FOREIGN KEY (book_id) REFERENCES books(id) ON DELETE CASCADE,
+                UNIQUE(book_id, device_id)
+            );
+        """)
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
 
 
 def _open_db(repo: Path) -> sqlite3.Connection | None:

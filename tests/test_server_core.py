@@ -205,3 +205,188 @@ class TestUpdates:
         assert r["replace_recommended"] == 1
         assert r["manual_review"] == 1
         assert r["reject"] == 1
+
+
+TEST_TEXT = "中文测试：高考陪读那三年\n第二章 新的开始\n内容包含常见汉字和标点。"
+
+
+def _write_test_txt(path: Path, text: str, encoding: str) -> None:
+    path.write_text(text, encoding=encoding)
+
+
+class TestTextReader:
+    def test_utf8(self):
+        p = Path(tempfile.mktemp(suffix=".txt"))
+        _write_test_txt(p, TEST_TEXT, "utf-8")
+        from novel_manager.server.services.text_reader import read_text_safely
+        r = read_text_safely(p)
+        assert "高考陪读那三年" in r["text"]
+        assert r["encoding"] in ("utf-8", "utf_8")
+        assert r["decode_warning"] is None or r["replacement_ratio"] < 0.01
+
+    def test_utf8_sig(self):
+        p = Path(tempfile.mktemp(suffix=".txt"))
+        _write_test_txt(p, TEST_TEXT, "utf-8-sig")
+        from novel_manager.server.services.text_reader import read_text_safely
+        r = read_text_safely(p)
+        assert "高考陪读那三年" in r["text"]
+        assert r["encoding"] in ("utf-8-sig", "utf_8_sig")
+
+    def test_gbk(self):
+        p = Path(tempfile.mktemp(suffix=".txt"))
+        _write_test_txt(p, TEST_TEXT, "gbk")
+        from novel_manager.server.services.text_reader import read_text_safely
+        r = read_text_safely(p)
+        assert "高考陪读那三年" in r["text"]
+
+    def test_gb18030(self):
+        p = Path(tempfile.mktemp(suffix=".txt"))
+        _write_test_txt(p, TEST_TEXT, "gb18030")
+        from novel_manager.server.services.text_reader import read_text_safely
+        r = read_text_safely(p)
+        assert "高考陪读那三年" in r["text"]
+
+    def test_utf16_le(self):
+        p = Path(tempfile.mktemp(suffix=".txt"))
+        _write_test_txt(p, TEST_TEXT, "utf-16-le")
+        from novel_manager.server.services.text_reader import read_text_safely
+        r = read_text_safely(p)
+        assert "高考陪读那三年" in r["text"]
+
+    def test_utf16_be(self):
+        p = Path(tempfile.mktemp(suffix=".txt"))
+        _write_test_txt(p, TEST_TEXT, "utf-16-be")
+        from novel_manager.server.services.text_reader import read_text_safely
+        r = read_text_safely(p)
+        assert "高考陪读那三年" in r["text"]
+
+    def test_returns_encoding_field(self):
+        p = Path(tempfile.mktemp(suffix=".txt"))
+        _write_test_txt(p, TEST_TEXT, "gbk")
+        from novel_manager.server.services.text_reader import read_text_safely
+        r = read_text_safely(p)
+        assert "encoding" in r
+        assert r["encoding"]
+
+    def test_does_not_crash_on_binary(self):
+        p = Path(tempfile.mktemp(suffix=".txt"))
+        p.write_bytes(bytes(range(256)))
+        from novel_manager.server.services.text_reader import read_text_safely
+        r = read_text_safely(p)
+        assert "text" in r
+
+    def test_max_bytes_respected(self):
+        p = Path(tempfile.mktemp(suffix=".txt"))
+        _write_test_txt(p, TEST_TEXT * 500, "utf-8")
+        from novel_manager.server.services.text_reader import read_text_safely
+        r = read_text_safely(p, max_bytes=1000)
+        assert r["source_size"] > 1000
+        assert len(r["text"]) <= 1000
+
+    def test_content_api_returns_encoding(self):
+        repo = _make_repo()
+        import sqlite3 as _sql
+        conn = _sql.connect(str(repo / "db" / "novel_repo.sqlite"))
+        conn.row_factory = _sql.Row
+        conn.execute("UPDATE books SET encoding = ? WHERE id = 1", ("gbk",))
+        conn.commit(); conn.close()
+        (repo / "library" / "a.txt").write_text(TEST_TEXT, encoding="gbk")
+        r = get_book_content(str(repo), 1)
+        assert r is not None
+        assert "encoding" in r
+
+    def test_content_api_rejects_unsafe_path(self):
+        repo = _make_repo()
+        import sqlite3 as _sql
+        conn = _sql.connect(str(repo / "db" / "novel_repo.sqlite"))
+        conn.row_factory = _sql.Row
+        conn.execute("UPDATE books SET current_path = ? WHERE id = 1", ("/etc/passwd",))
+        conn.commit(); conn.close()
+        r = get_book_content(str(repo), 1)
+        assert "路径不在仓库范围内" in r.get("error", "")
+
+    def test_content_api_missing_file_graceful(self):
+        repo = _make_repo()
+        import sqlite3 as _sql
+        conn = _sql.connect(str(repo / "db" / "novel_repo.sqlite"))
+        conn.row_factory = _sql.Row
+        conn.execute("UPDATE books SET current_path = ? WHERE id = 1",
+                     (str(repo / "library" / "nonexistent.txt"),))
+        conn.commit(); conn.close()
+        r = get_book_content(str(repo), 1)
+        assert r.get("error") == "文件不存在"
+
+
+class TestReadingProgress:
+    def test_save_and_load(self):
+        repo = _make_repo()
+        from novel_manager.server.services.progress_service import save_progress, get_progress
+        save_progress(str(repo), 1, 0.35, 5000)
+        p = get_progress(str(repo), 1)
+        assert p is not None
+        assert p["progress_ratio"] == 0.35
+        assert p["scroll_position"] == 5000
+
+    def test_overwrite_progress(self):
+        repo = _make_repo()
+        from novel_manager.server.services.progress_service import save_progress, get_progress
+        save_progress(str(repo), 1, 0.2, 100)
+        save_progress(str(repo), 1, 0.8, 9999)
+        p = get_progress(str(repo), 1)
+        assert p["progress_ratio"] == 0.8
+        assert p["scroll_position"] == 9999
+
+    def test_clamp_ratio_below_zero(self):
+        repo = _make_repo()
+        from novel_manager.server.services.progress_service import save_progress
+        r = save_progress(str(repo), 1, -0.5, 0)
+        assert r["progress_ratio"] == 0.0
+
+    def test_clamp_ratio_above_one(self):
+        repo = _make_repo()
+        from novel_manager.server.services.progress_service import save_progress
+        r = save_progress(str(repo), 1, 1.5, 0)
+        assert r["progress_ratio"] == 1.0
+
+    def test_clamp_negative_scroll(self):
+        repo = _make_repo()
+        from novel_manager.server.services.progress_service import save_progress
+        r = save_progress(str(repo), 1, 0.5, -100)
+        assert r["scroll_position"] == 0
+
+    def test_nonexistent_book(self):
+        repo = _make_repo()
+        from novel_manager.server.services.progress_service import save_progress
+        r = save_progress(str(repo), 999, 0.5, 0)
+        assert r.get("ok") is False
+
+    def test_table_auto_created(self):
+        repo = _make_repo()
+        import sqlite3
+        db = repo / "db" / "novel_repo.sqlite"
+        conn = sqlite3.connect(str(db))
+        tables = [r[0] for r in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
+        conn.close()
+        from novel_manager.server.services.progress_service import get_progress
+        get_progress(str(repo), 1)
+        conn = sqlite3.connect(str(db))
+        tables2 = [r[0] for r in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
+        conn.close()
+        assert "reading_progress" in tables2
+
+    def test_books_api_unaffected(self):
+        repo = _make_repo()
+        from novel_manager.server.services.progress_service import save_progress
+        save_progress(str(repo), 1, 0.5, 100)
+        r = list_books(str(repo))
+        assert r["total"] == 3
+
+    def test_content_api_unaffected(self):
+        repo = _make_repo()
+        from novel_manager.server.services.progress_service import save_progress
+        save_progress(str(repo), 1, 0.5, 100)
+        r = get_book_content(str(repo), 1)
+        assert r is not None
+        assert "content" in r

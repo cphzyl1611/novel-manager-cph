@@ -34,7 +34,8 @@
       "Read(//c/anaconda3/**)",
       "Read(//d/Anaconda3/**)",
       "Read(//c/ProgramData/anaconda3/**)",
-      "Bash(python -m pytest tests/ -v --timeout=60)"
+      "Bash(python -m pytest tests/ -v --timeout=60)",
+      "Bash(C:/Program Files/Git/bin/git.exe *)"
     ]
   }
 }

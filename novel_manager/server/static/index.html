@@ -29,11 +29,53 @@
 <div class="shelf" id="shelf"><div class="loading"><div class="spinner"></div></div></div>
 <div class="empty-state" id="emptyState" style="display:none">📭 暂无小说</div>
 <div class="reader" id="reader">
-  <div class="reader-top">
+  <div class="reader-top" id="readerTop">
     <button class="back-btn" onclick="closeReader()">←</button>
     <div class="reader-title" id="readerTitle"></div>
+    <div class="reader-encoding" id="readerEncoding" style="display:none"></div>
+    <span class="reader-progress" id="readerProgressText"></span>
+    <button class="settings-btn" id="settingsBtn" onclick="toggleSettings()">⚙</button>
   </div>
-  <div class="reader-content" id="readerContent">加载中...</div>
+  <div class="reader-warning" id="readerWarning" style="display:none"></div>
+  <div class="reader-toast" id="readerToast"></div>
+  <div class="reader-content" id="readerContent" onclick="onReaderTap()">加载中...</div>
+
+  <!-- settings panel INSIDE reader -->
+  <div class="settings-overlay" id="settingsOverlay" onclick="toggleSettings()"></div>
+  <div class="settings-sheet" id="settingsPanel">
+    <div class="sheet-handle"></div>
+    <div class="sheet-row">
+      <span class="label">字体大小</span>
+      <div class="controls">
+        <button class="btn-sm" id="fontSizeDown" onclick="changeFontSize(-1)">A−</button>
+        <span class="val" id="fontSizeVal">18px</span>
+        <button class="btn-sm" id="fontSizeUp" onclick="changeFontSize(1)">A+</button>
+      </div>
+    </div>
+    <div class="sheet-row">
+      <span class="label">行距</span>
+      <div class="controls">
+        <button class="btn-sm" id="lhDown" onclick="changeLineHeight(-1)">−</button>
+        <span class="val" id="lineHeightVal">标准</span>
+        <button class="btn-sm" id="lhUp" onclick="changeLineHeight(1)">+</button>
+      </div>
+    </div>
+    <div class="sheet-row">
+      <span class="label">主题</span>
+      <div class="theme-dots">
+        <div class="theme-dot light active" id="themeLight" onclick="setTheme('light')" title="浅色">☀</div>
+        <div class="theme-dot sepia" id="themeSepia" onclick="setTheme('sepia')" title="护眼">☕</div>
+        <div class="theme-dot dark" id="themeDark" onclick="setTheme('dark')" title="夜间">🌙</div>
+      </div>
+    </div>
+    <div class="sheet-row">
+      <span class="label">导航</span>
+      <div class="controls">
+        <button class="btn-sm" id="btnTop" onclick="scrollToTop()" title="返回顶部">⬆</button>
+        <button class="btn-sm" id="btnBack" onclick="closeReader()" title="返回书架">🏠</button>
+      </div>
+    </div>
+  </div>
 </div>
 <div class="updates-page" id="updatesPage">
   <h2 style="margin-bottom:12px">🔄 更新候选</h2>
