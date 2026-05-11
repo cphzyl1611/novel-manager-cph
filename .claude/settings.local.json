@@ -35,7 +35,31 @@
       "Read(//d/Anaconda3/**)",
       "Read(//c/ProgramData/anaconda3/**)",
       "Bash(python -m pytest tests/ -v --timeout=60)",
-      "Bash(C:/Program Files/Git/bin/git.exe *)"
+      "Bash(C:/Program Files/Git/bin/git.exe *)",
+      "Bash(\"C:/Program Files/Git/bin/git.exe\" diff main...HEAD --name-only)",
+      "Bash(\"C:/Program Files/Git/cmd/git.exe\" diff main...HEAD --name-only)",
+      "Bash(\"/c/Program Files/Git/bin/git\" diff main...HEAD --name-only)",
+      "Bash(/c/Program Files/Git/bin/git log *)",
+      "Bash(python -m pytest tests/test_server_core.py -v --tb=short)",
+      "Bash(python3 *)",
+      "Bash(py *)",
+      "Bash(/c/Python310/python.exe *)",
+      "Bash(D:/python/python.exe *)",
+      "Bash(/c/Program Files/Git/bin/git status *)",
+      "Bash(\"/c/Program Files/Git/bin/git\" add novel_manager/server/static/app.js)",
+      "Bash('/c/Program Files/Git/bin/git' commit -m ' *)",
+      "Bash(\"/c/Program Files/Git/bin/git\" commit -m \"fix: escape newlines in doRestore confirm dialog\")",
+      "Bash(/c/Program Files/Git/bin/git diff *)",
+      "Bash(sed -n '398,405p' novel_manager/server/static/app.js)",
+      "Bash(\"/c/Program Files/Git/usr/bin/sed\" -n '398,405p' novel_manager/server/static/app.js)",
+      "Bash(\"/c/Program Files/Git/usr/bin/sed\" -n '401p' novel_manager/server/static/app.js)",
+      "Bash(xxd)",
+      "Bash(node *)",
+      "Bash(\"/d/nodejs/node\" --check novel_manager/server/static/app.js)",
+      "Bash(\"/c/Program Files/nodejs/node\" --check novel_manager/server/static/app.js)",
+      "Bash(\"/c/Program Files/Git/bin/git\" add novel_manager/server/static/app.js novel_manager/server/static/index.html tests/test_static_js.py)",
+      "Bash(\"/c/Program Files/Git/bin/git\" commit -m \"fix app js operation restore syntax\")",
+      "Bash(/c/Program Files/Git/bin/git push *)"
     ]
   }
 }
