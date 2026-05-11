@@ -405,11 +405,7 @@ async function loadOps(filter){
 }
 
 async function doRestore(opId){
-  if(!confirm('确认恢复？
-
-这会把该小说从当前区域移回新下载区。
-不会删除文件，也不会覆盖已有文件。
-如果新下载区已有同名文件，会自动改名。'))return;
+  if(!confirm('确认恢复？\n\n这会把该小说从当前区域移回新下载区。\n不会删除文件，也不会覆盖已有文件。\n如果新下载区已有同名文件，会自动改名。'))return;
   var r=await postApi('/api/operations/'+opId+'/restore');
   if(!r||!r.ok){toast(r&&r.error||'恢复失败');return}
   toast('已恢复到新下载区');loadOps('')
