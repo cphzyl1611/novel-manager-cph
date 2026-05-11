@@ -398,7 +398,7 @@ async function loadOps(filter){
       +'<div class="ac-meta">'+esc(it.source_area)+' → '+esc(it.target_area)+'</div>'
       +'<div class="ac-meta">'+esc(it.created_at||'')+'</div>'
       +'<div class="ac-actions">';
-    if(rev)h+='<button class="btn-sm btn-action" onclick="doRestore(''+it.operation_id+'')">恢复到新下载区</button>';
+    if(rev)h+='<button class="btn-sm btn-action" data-op-id="'+esc(it.operation_id)+'" onclick="doRestore(this.dataset.opId)">恢复到新下载区</button>';
     h+='</div></div>'
   }
   el.innerHTML=h
