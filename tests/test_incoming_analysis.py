@@ -283,3 +283,101 @@ class TestIncomingAnalysisUpdateDetection:
         assert "top_matches" in item
         if item["classification"] == "new_book":
             assert len(item["top_matches"]) >= 1
+
+    def test_minor_single_chapter_update_detected(self) -> None:
+        """Test that a minor update with only one new chapter is detected as update_candidate."""
+        repo = _make_repo_for_analysis()
+
+        old_chapters = [f"章节{i}" for i in range(1, 4)]
+        new_chapters = old_chapters + ["章节4"]
+
+        _make_book(repo, "library", "old_book.txt", 1, "测试小说", "测试作者",
+                   quality=80.0, chapters=3, chars=3000, chapter_titles=old_chapters)
+        _make_book(repo, "incoming", "new_book.txt", 2, "测试小说", "测试作者",
+                   quality=80.0, chapters=4, chars=3500, chapter_titles=new_chapters)
+
+        result = analyze_incoming(str(repo))
+
+        assert result["summary"]["incoming_count"] == 1
+        assert result["summary"]["update_candidate"] == 1, f"Expected update_candidate=1, got {result['summary']}"
+        assert result["summary"]["new_book"] == 0, f"Expected new_book=0, got {result['summary']}"
+
+        item = result["items"][0]
+        assert item["classification"] == "update_candidate"
+        assert item.get("update_type") == "minor_update"
+        assert item["recommendation"] == "manual_review"
+        assert item["chapter_growth"] == 1
+
+    def test_formatting_only_change_not_update_candidate(self) -> None:
+        """Test that formatting-only changes without new content are not update_candidate."""
+        repo = _make_repo_for_analysis()
+
+        chapters = [f"章节{i}" for i in range(1, 51)]
+
+        _make_book(repo, "library", "old_book.txt", 1, "测试小说", "测试作者",
+                   quality=80.0, chapters=50, chars=50000, chapter_titles=chapters)
+        _make_book(repo, "incoming", "new_book.txt", 2, "测试小说", "测试作者",
+                   quality=80.0, chapters=50, chars=50000, chapter_titles=chapters)
+
+        result = analyze_incoming(str(repo))
+
+        item = result["items"][0]
+        assert item["classification"] in ["manual_review", "near_duplicate"], f"Got {item['classification']}"
+        assert item["classification"] != "new_book"
+
+    def test_same_title_different_content_is_manual_review(self) -> None:
+        """Test that same title but different content goes to manual_review, not update_candidate."""
+        repo = _make_repo_for_analysis()
+
+        old_chapters = [f"旧章节{i}" for i in range(1, 51)]
+        new_chapters = [f"新章节{i}" for i in range(1, 51)]
+
+        _make_book(repo, "library", "old_book.txt", 1, "测试小说", "测试作者",
+                   quality=80.0, chapters=50, chars=50000, chapter_titles=old_chapters)
+        _make_book(repo, "incoming", "new_book.txt", 2, "测试小说", "测试作者",
+                   quality=80.0, chapters=50, chars=50000, chapter_titles=new_chapters)
+
+        result = analyze_incoming(str(repo))
+
+        item = result["items"][0]
+        assert item["classification"] in ["manual_review", "new_book"], f"Got {item['classification']}"
+        if item["classification"] == "update_candidate":
+            assert item.get("update_type") != "major_update"
+
+    def test_top_matches_contains_char_count_delta(self) -> None:
+        """Test that top_matches includes char_count_delta and chapter_growth."""
+        repo = _make_repo_for_analysis()
+
+        _make_book(repo, "library", "old_book.txt", 1, "测试小说", "测试作者",
+                   quality=80.0, chapters=50, chars=50000)
+        _make_book(repo, "incoming", "new_book.txt", 2, "测试小说", "测试作者",
+                   quality=85.0, chapters=55, chars=55000)
+
+        result = analyze_incoming(str(repo))
+
+        item = result["items"][0]
+        assert "top_matches" in item
+        if item["top_matches"]:
+            top = item["top_matches"][0]
+            assert "char_count_delta" in top
+            assert "chapter_growth" in top
+            assert "decision" in top
+            assert "reason" in top
+
+    def test_high_similarity_without_new_content_is_manual_review(self) -> None:
+        """Test that high similarity but no new content goes to manual_review, not new_book."""
+        repo = _make_repo_for_analysis()
+
+        chapters = [f"章节{i}" for i in range(1, 81)]
+
+        _make_book(repo, "library", "old_book.txt", 1, "测试小说", "测试作者",
+                   quality=80.0, chapters=80, chars=80000, chapter_titles=chapters)
+        _make_book(repo, "incoming", "new_book.txt", 2, "测试小说", "测试作者",
+                   quality=82.0, chapters=80, chars=80500, chapter_titles=chapters)
+
+        result = analyze_incoming(str(repo))
+
+        item = result["items"][0]
+        assert item["classification"] != "new_book", f"Should not be new_book, got {item['classification']}"
+        assert item["same_work_score"] is not None
+        assert item["same_work_score"] >= 0.80

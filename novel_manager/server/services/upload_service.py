@@ -218,11 +218,27 @@ def analyze_incoming(repo_path: str) -> dict[str, Any]:
                 item.update(update_match)
                 matched = {"id": update_match.get("matched_book_id")}
 
-        if matched is None:
-            top_matches = _find_top_similar_library(conn, ib_dict, lib_list, top_n=3)
-            item["top_matches"] = top_matches
-            if top_matches:
-                best = top_matches[0]
+        top_matches = _find_top_similar_library(conn, ib_dict, lib_list, top_n=3)
+        item["top_matches"] = top_matches
+
+        if matched is None and top_matches:
+            best = top_matches[0]
+            if best["same_work_score"] >= 0.80:
+                item["classification"] = "manual_review"
+                item["classification_label"] = "需人工确认"
+                item["matched_book_id"] = best["book_id"]
+                item["matched_title"] = best["title"]
+                item["same_work_score"] = best["same_work_score"]
+                item["old_coverage"] = best.get("old_coverage")
+                item["new_content_ratio"] = best.get("new_content_ratio")
+                item["chapter_growth"] = best.get("chapter_growth")
+                item["char_count_delta"] = best.get("char_count_delta")
+                item["quality_delta"] = best.get("quality_delta")
+                item["recommendation"] = "manual_review"
+                item["reason"] = f"存在高度相似旧书《{best['title']}》（同书分 {best['same_work_score']:.2f}），但新增内容证据不足，建议人工确认。"
+                item["update_type"] = "similar_only"
+                matched = {"id": best["book_id"]}
+            else:
                 item["reason"] = f"存在相似旧书《{best['title']}》（同书分 {best['same_work_score']:.2f}），但未达到新版判断阈值。"
 
         summary[item["classification"]] = summary.get(item["classification"], 0) + 1
@@ -256,9 +272,9 @@ def _find_update_candidate_live(conn, incoming_book: dict, library_books: list[d
         lib_chars = int(lib_book.get("char_count_clean") or 0)
 
         chapter_growth = incoming_chapters - lib_chapters
-        char_growth_ratio = (incoming_chars - lib_chars) / max(1, lib_chars) if lib_chars > 0 else 0
+        char_count_delta = incoming_chars - lib_chars
 
-        if title_score >= 0.85 and (author_score >= 0.8 or author_score == 0.0) and incoming_chars > lib_chars * 1.03:
+        if title_score >= 0.85 and (author_score >= 0.8 or author_score <= 0.5):
             try:
                 incoming_ch_list = _chapters(conn, incoming_book["id"])
                 lib_ch_list = _chapters(conn, lib_book["id"])
@@ -277,11 +293,13 @@ def _find_update_candidate_live(conn, incoming_book: dict, library_books: list[d
                     "new_content_score": new_content,
                     "quality_delta": quality_delta,
                     "chapter_growth": chapter_growth,
+                    "char_count_delta": char_count_delta,
                     "risks": comparison.get("risk_flags", []),
                     "recommendation": comparison.get("recommendation"),
                     "reason_summary": comparison.get("reason_summary"),
                     "comparison": comparison,
                     "author_conflict": author_score == 0.0,
+                    "title_score": title_score,
                 })
             except Exception:
                 pass
@@ -296,14 +314,32 @@ def _find_update_candidate_live(conn, incoming_book: dict, library_books: list[d
     coverage = best["coverage_score"]
     new_content = best["new_content_score"]
     quality_delta = best["quality_delta"]
+    chapter_growth = best["chapter_growth"]
+    char_count_delta = best["char_count_delta"]
+    title_score = best.get("title_score", 0)
     risks = list(best["risks"])
 
     if best.get("author_conflict"):
         risks.append("author_conflict")
 
-    severe_risks = {"author_conflict", "low_same_work_score", "low_coverage", "quality_drop", "possible_truncated_new_version"}
+    severe_risks = {"author_conflict", "low_same_work_score", "low_coverage", "possible_truncated_new_version"}
 
-    if same_work >= 0.85 and coverage >= 0.85 and new_content >= 0.03 and quality_delta >= -10 and not (set(risks) & severe_risks):
+    is_minor_update = (
+        (same_work >= 0.88 or title_score >= 0.92)
+        and coverage >= 0.90
+        and (chapter_growth >= 1 or new_content >= 0.005 or char_count_delta >= 500)
+        and quality_delta >= -15
+    )
+
+    is_major_update = (
+        same_work >= 0.85
+        and coverage >= 0.85
+        and (new_content >= 0.03 or chapter_growth >= 2)
+        and quality_delta >= -10
+        and not (set(risks) & severe_risks)
+    )
+
+    if is_major_update:
         return {
             "classification": "update_candidate",
             "classification_label": "可能是新版",
@@ -312,12 +348,52 @@ def _find_update_candidate_live(conn, incoming_book: dict, library_books: list[d
             "same_work_score": round(same_work, 4),
             "old_coverage": round(coverage, 4),
             "new_content_ratio": round(new_content, 4),
-            "chapter_growth": best["chapter_growth"],
+            "chapter_growth": chapter_growth,
+            "char_count_delta": char_count_delta,
             "quality_delta": round(quality_delta, 2),
             "recommendation": "manual_review",
             "reason": f"新下载版本与书架中《{best['title']}》高度相似（同书分 {same_work:.2f}），且新增了约 {new_content*100:.1f}% 内容，可能是新版。建议查看对比后再替换。",
             "risks": risks,
             "confidence": round(same_work, 2),
+            "update_type": "major_update",
+        }
+
+    if is_minor_update:
+        return {
+            "classification": "update_candidate",
+            "classification_label": "可能是小幅更新",
+            "matched_book_id": best["book_id"],
+            "matched_title": best["title"],
+            "same_work_score": round(same_work, 4),
+            "old_coverage": round(coverage, 4),
+            "new_content_ratio": round(new_content, 4),
+            "chapter_growth": chapter_growth,
+            "char_count_delta": char_count_delta,
+            "quality_delta": round(quality_delta, 2),
+            "recommendation": "manual_review",
+            "reason": f"新下载版本与书架旧版高度相似（同书分 {same_work:.2f}），并包含少量新增内容（约 {char_count_delta} 字），疑似小幅更新版本，建议人工确认后再替换。",
+            "risks": risks,
+            "confidence": round(same_work, 2),
+            "update_type": "minor_update",
+        }
+
+    if same_work >= 0.80:
+        return {
+            "classification": "manual_review",
+            "classification_label": "需人工确认",
+            "matched_book_id": best["book_id"],
+            "matched_title": best["title"],
+            "same_work_score": round(same_work, 4),
+            "old_coverage": round(coverage, 4),
+            "new_content_ratio": round(new_content, 4),
+            "chapter_growth": chapter_growth,
+            "char_count_delta": char_count_delta,
+            "quality_delta": round(quality_delta, 2),
+            "recommendation": "manual_review",
+            "reason": f"存在相似旧书《{best['title']}》（同书分 {same_work:.2f}），但新增内容证据不足，建议人工确认。",
+            "risks": risks,
+            "confidence": round(same_work * 0.9, 2),
+            "update_type": "similar_only",
         }
 
     if same_work >= 0.75 or (same_work >= 0.70 and coverage >= 0.80):
@@ -329,40 +405,69 @@ def _find_update_candidate_live(conn, incoming_book: dict, library_books: list[d
             "same_work_score": round(same_work, 4),
             "old_coverage": round(coverage, 4),
             "new_content_ratio": round(new_content, 4),
-            "chapter_growth": best["chapter_growth"],
+            "chapter_growth": chapter_growth,
+            "char_count_delta": char_count_delta,
             "quality_delta": round(quality_delta, 2),
             "recommendation": "manual_review",
-            "reason": f"根据标题、章节和字数增长判断，可能是新版；由于覆盖率未充分验证或存在风险，建议人工确认。",
+            "reason": f"根据标题、章节和字数判断，可能是新版；由于覆盖率未充分验证或存在风险，建议人工确认。",
             "risks": risks,
             "confidence": round(same_work * 0.9, 2),
+            "update_type": "unknown",
         }
 
     return None
 
 
 def _find_top_similar_library(conn, incoming_book: dict, library_books: list[dict], top_n: int = 3) -> list[dict]:
-    """Find top N similar library books for an incoming book."""
+    """Find top N similar library books for an incoming book with full diagnostic info."""
     incoming_title = incoming_book.get("title_norm") or incoming_book.get("title_raw") or incoming_book.get("file_name")
     incoming_author = incoming_book.get("author_norm") or incoming_book.get("author_raw")
+    incoming_chapters = int(incoming_book.get("chapter_count") or 0)
+    incoming_chars = int(incoming_book.get("char_count_clean") or 0)
 
     scored = []
     for lib_book in library_books:
         lib_title = lib_book.get("title_norm") or lib_book.get("title_raw") or lib_book.get("file_name")
         lib_author = lib_book.get("author_norm") or lib_book.get("author_raw")
+        lib_chapters = int(lib_book.get("chapter_count") or 0)
+        lib_chars = int(lib_book.get("char_count_clean") or 0)
 
         title_score = title_similarity(incoming_title, lib_title)
         if title_score < 0.50:
             continue
 
         author_score = author_similarity(incoming_author, lib_author)
+        chapter_growth = incoming_chapters - lib_chapters
+        char_count_delta = incoming_chars - lib_chars
 
         try:
             incoming_ch_list = _chapters(conn, incoming_book["id"])
             lib_ch_list = _chapters(conn, lib_book["id"])
             comparison = compare_update_pair(conn, lib_book, incoming_book, lib_ch_list, incoming_ch_list)
             same_work = comparison.get("same_work_score", 0)
+            coverage = comparison.get("coverage_score", 0)
+            new_content = comparison.get("new_content_score", 0)
+            quality_delta = comparison.get("quality_delta", 0)
         except Exception:
             same_work = title_score * 0.7
+            coverage = 0.0
+            new_content = 0.0
+            quality_delta = 0.0
+
+        decision = "no_match"
+        reason = ""
+        if same_work >= 0.85 and coverage >= 0.85 and (new_content >= 0.03 or chapter_growth >= 2):
+            decision = "major_update"
+            reason = "满足大幅更新条件"
+        elif (same_work >= 0.88 or title_score >= 0.92) and coverage >= 0.90 and (chapter_growth >= 1 or new_content >= 0.005 or char_count_delta >= 500):
+            decision = "minor_update"
+            reason = "满足小幅更新条件"
+        elif same_work >= 0.80:
+            decision = "similar_only"
+            reason = "高度相似但新增内容不足"
+        elif same_work >= 0.70:
+            decision = "possible_match"
+            reason = "可能相似需人工确认"
 
         scored.append({
             "book_id": lib_book["id"],
@@ -370,6 +475,13 @@ def _find_top_similar_library(conn, incoming_book: dict, library_books: list[dic
             "title_score": round(title_score, 4),
             "author_score": round(author_score, 4),
             "same_work_score": round(same_work, 4),
+            "old_coverage": round(coverage, 4),
+            "new_content_ratio": round(new_content, 4),
+            "char_count_delta": char_count_delta,
+            "chapter_growth": chapter_growth,
+            "quality_delta": round(quality_delta, 2),
+            "decision": decision,
+            "reason": reason,
         })
 
     scored.sort(key=lambda x: x["same_work_score"], reverse=True)
