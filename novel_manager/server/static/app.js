@@ -283,6 +283,7 @@ function renderAnalysis(){
     if(it.matched_book_id)h+='<button class="btn-sm" onclick="openBook('+it.matched_book_id+',\''+esc(it.matched_title||'')+'\')">打开旧书</button>';
     if(it.classification==='new_book')h+='<button class="btn-sm btn-action" onclick="doImport('+it.incoming_book_id+')">加入书架</button>';
     if(it.classification==='exact_duplicate')h+='<button class="btn-sm btn-action" onclick="doMoveReview('+it.incoming_book_id+')">移入重复复核区</button>';
+    if(it.classification==='update_candidate'&&it.matched_book_id)h+='<button class="btn-sm btn-action replace-btn" data-incoming-id="'+it.incoming_book_id+'" data-matched-id="'+it.matched_book_id+'">确认替换旧版</button>';
     if(it.matched_book_id)h+='<button class="btn-sm" onclick="showCompare('+it.incoming_book_id+','+it.matched_book_id+')">对比</button>';
     h+='</div></div>'
   }
@@ -390,26 +391,64 @@ async function loadOps(filter){
   var h='';
   for(var i=0;i<d.items.length;i++){
     var it=d.items[i],rev=it.reversible&&!it.restored;
+    var isReplace=it.operation_type==='replace_library_version';
     h+='<div class="analysis-card'+(it.restored?' reject':'')+'">'
       +'<div class="ac-head"><span class="ac-badge'+(it.restored?' reject':' new')+'">'+esc(it.operation_label)+'</span>'
       +(it.restored?'<span class="ac-badge reject" style="margin-left:4px">已恢复</span>':'')
       +'</div>'
-      +'<div class="ac-title">'+esc(it.title||it.file_name||'')+'</div>'
-      +'<div class="ac-meta">'+esc(it.source_area)+' → '+esc(it.target_area)+'</div>'
-      +'<div class="ac-meta">'+esc(it.created_at||'')+'</div>'
+      +'<div class="ac-title">'+esc(it.title||it.file_name||'')+'</div>';
+    if(isReplace){
+      h+='<div class="ac-meta">新下载区 → 小说库</div><div class="ac-meta">旧版：小说库 → 已归档</div>';
+    }else{
+      h+='<div class="ac-meta">'+esc(it.source_area)+' → '+esc(it.target_area)+'</div>';
+    }
+    h+='<div class="ac-meta">'+esc(it.created_at||'')+'</div>'
       +'<div class="ac-actions">';
-    if(rev)h+='<button class="btn-sm btn-action" data-op-id="'+esc(it.operation_id)+'" onclick="doRestore(this.dataset.opId)">恢复到新下载区</button>';
+    if(rev){
+      var btnLabel=isReplace?'恢复替换':'恢复到新下载区';
+      var isRepVal=isReplace?'true':'false';
+      h+='<button class="btn-sm btn-action" data-op-id="'+esc(it.operation_id)+'" data-is-replace="'+isRepVal+'" onclick="doRestore(this.dataset.opId,this.dataset.isReplace===\'true\')">'+btnLabel+'</button>';
+    }
     h+='</div></div>'
   }
   el.innerHTML=h
 }
 
-async function doRestore(opId){
-  if(!confirm('确认恢复？\n\n这会把该小说从当前区域移回新下载区。\n不会删除文件，也不会覆盖已有文件。\n如果新下载区已有同名文件，会自动改名。'))return;
+async function doRestore(opId,isReplace){
+  var msg;
+  if(isReplace){
+    msg=['确认恢复替换？','','这会把新版移回新下载区，并把旧版恢复到小说库。','不会删除文件。','不会覆盖已有文件。'].join('\n');
+  }else{
+    msg=['确认恢复？','','这会把该小说从当前区域移回新下载区。','不会删除文件，也不会覆盖已有文件。','如果新下载区已有同名文件，会自动改名。'].join('\n');
+  }
+  if(!confirm(msg))return;
   var r=await postApi('/api/operations/'+opId+'/restore');
   if(!r||!r.ok){toast(r&&r.error||'恢复失败');return}
-  toast('已恢复到新下载区');loadOps('')
+  toast(isReplace?'已恢复替换操作':'已恢复到新下载区');loadOps('')
 }
+
+// ======== REPLACE LIBRARY VERSION ========
+async function doReplaceLibrary(incomingId,matchedId){
+  var msg=['确认替换旧版？','','这会执行以下操作：','','1. 将书架中的旧版移动到 archive/replaced；','2. 将新下载区中的新版加入书架；','3. 不会删除任何文件；','4. 不会覆盖已有文件；','5. 可在"操作记录"中恢复。'].join('\n');
+  if(!confirm(msg))return;
+  var r=await postApi('/api/incoming/'+incomingId+'/replace-library/'+matchedId);
+  if(!r||!r.ok){toast(r&&r.error||'替换失败');return}
+  toast('已将新版加入书架，旧版已归档');
+  loadUpdates();
+  state.offset=0;state.books=[];state.hasMore=true;
+  eid('shelf').innerHTML='';
+  loadBooks();
+}
+
+// Event delegation for replace button
+document.addEventListener('click',function(e){
+  var btn=e.target.closest('.replace-btn');
+  if(!btn)return;
+  var incomingId=btn.getAttribute('data-incoming-id');
+  var matchedId=btn.getAttribute('data-matched-id');
+  if(incomingId&&matchedId)doReplaceLibrary(incomingId,matchedId);
+});
+
 // ======== INIT ========
 async function init(){var h=await api('/api/health');if(h&&h.ok)eid('drawerStatus').textContent='仓库已连接';loadGroups();loadBooks()}
 init();

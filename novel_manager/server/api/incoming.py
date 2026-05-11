@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Request
 
 from ..services.incoming_service import compare_books, import_to_library, move_to_review_duplicates
+from ..services.version_replace_service import replace_library_version
 
 router = APIRouter(tags=["incoming"])
 
@@ -28,4 +29,12 @@ def api_compare(book_id: int, matched_book_id: int, request: Request):
     r = compare_books(book_id, matched_book_id, request.app.state.repo_path)
     if not r.get("ok"):
         raise HTTPException(status_code=404, detail=r.get("error", "对比失败"))
+    return r
+
+
+@router.post("/api/incoming/{incoming_book_id}/replace-library/{matched_book_id}")
+def api_replace_library(incoming_book_id: int, matched_book_id: int, request: Request):
+    r = replace_library_version(request.app.state.repo_path, incoming_book_id, matched_book_id)
+    if not r["ok"]:
+        raise HTTPException(status_code=400, detail=r["error"])
     return r

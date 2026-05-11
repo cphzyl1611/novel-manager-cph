@@ -8,8 +8,8 @@ from typing import Any
 from ...db import connect as db_connect
 from ...utils import ensure_dir, now_ts
 
-REVERSIBLE_TYPES = {"import_to_library", "move_to_review_duplicates"}
-TYPE_LABELS = {"import_to_library": "加入书架", "move_to_review_duplicates": "移入重复复核区"}
+REVERSIBLE_TYPES = {"import_to_library", "move_to_review_duplicates", "replace_library_version"}
+TYPE_LABELS = {"import_to_library": "加入书架", "move_to_review_duplicates": "移入重复复核区", "replace_library_version": "替换旧版", "restore_replace_library_version": "恢复替换"}
 AREA_LABELS = {"incoming": "新下载区", "library": "小说库", "review_duplicates": "重复复核区", "archive": "归档区", "trash": "废弃区"}
 
 
@@ -95,12 +95,23 @@ def restore_operation(repo_path: str, operation_id: str) -> dict:
     if row is None:
         conn.close(); return {"ok": False, "error": "操作记录不存在"}
     rec = dict(row)
+    conn.close()
+
     if not rec["reversible"]:
-        conn.close(); return {"ok": False, "error": "该操作不可恢复"}
+        return {"ok": False, "error": "该操作不可恢复"}
     if rec["restored"]:
-        conn.close(); return {"ok": False, "error": "该操作已经恢复过，不能重复恢复"}
+        return {"ok": False, "error": "该操作已经恢复过，不能重复恢复"}
     if rec["operation_type"] not in REVERSIBLE_TYPES:
-        conn.close(); return {"ok": False, "error": "该操作类型不支持恢复"}
+        return {"ok": False, "error": "该操作类型不支持恢复"}
+
+    if rec["operation_type"] == "replace_library_version":
+        from .version_replace_service import restore_replace_library_version
+        return restore_replace_library_version(repo_path, operation_id)
+
+    try:
+        conn = _ensure_table(root)
+    except Exception:
+        return {"ok": False, "error": "无法连接数据库"}
 
     op_type = rec["operation_type"]
     book_id = rec["book_id"]
