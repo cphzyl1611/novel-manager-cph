@@ -9,6 +9,8 @@ from typing import Any
 
 from ...db import connect as db_connect
 from ...scanner import scan_file
+from ...update_detector import compare_update_pair, _chapters
+from ...near_duplicate import title_similarity, author_similarity
 from ...utils import ensure_dir, now_ts
 
 MAX_FILE_SIZE = 50 * 1024 * 1024
@@ -109,6 +111,7 @@ def scan_incoming(repo_path: str) -> dict[str, Any]:
 
 
 def analyze_incoming(repo_path: str) -> dict[str, Any]:
+    """Analyze incoming books and classify them."""
     root = Path(repo_path).expanduser().resolve()
     try:
         conn = db_connect(root)
@@ -117,18 +120,19 @@ def analyze_incoming(repo_path: str) -> dict[str, Any]:
         if not incoming_books:
             conn.close()
             return _empty_analysis()
-        library_books = conn.execute(
-            "SELECT id, file_name, title_norm, author_norm, raw_sha256, clean_sha256, char_count_clean, chapter_count, quality_score, current_path FROM books WHERE repo_area = 'library'"
-        ).fetchall()
+        library_books = conn.execute("SELECT * FROM books WHERE repo_area = 'library'").fetchall()
     except Exception:
         return _empty_analysis()
+
     lib_by_raw = {r["raw_sha256"]: dict(r) for r in library_books if r["raw_sha256"]}
     lib_by_clean = {r["clean_sha256"]: dict(r) for r in library_books if r["clean_sha256"]}
+    lib_list = [dict(r) for r in library_books]
 
     items: list[dict] = []
     summary = {"incoming_count": len(incoming_books), "new_book": 0, "exact_duplicate": 0, "update_candidate": 0, "near_duplicate": 0, "manual_review": 0, "reject": 0}
 
     for ib in incoming_books:
+        ib_dict = dict(ib)
         ib_id = ib["id"]
         item = {
             "incoming_book_id": ib_id,
@@ -147,6 +151,7 @@ def analyze_incoming(repo_path: str) -> dict[str, Any]:
             "recommendation": "import_candidate",
             "reason": "未匹配到已有书籍，建议导入书库。",
             "risks": [],
+            "top_matches": [],
         }
 
         raw_hash = ib["raw_sha256"]
@@ -160,6 +165,8 @@ def analyze_incoming(repo_path: str) -> dict[str, Any]:
             item["recommendation"] = "duplicate_review"
             item["reason"] = "内容完全相同的文件已存在，建议保留质量更高版本，另一份移入重复复核区。"
             item["confidence"] = 1.0
+            item["matched_book_id"] = matched["id"]
+            item["matched_title"] = matched.get("title_norm") or matched.get("file_name")
         elif clean_hash and clean_hash in lib_by_clean:
             matched = lib_by_clean[clean_hash]
             item["classification"] = "exact_duplicate"
@@ -167,6 +174,8 @@ def analyze_incoming(repo_path: str) -> dict[str, Any]:
             item["recommendation"] = "duplicate_review"
             item["reason"] = "去除广告后内容相同的文件已存在。"
             item["confidence"] = 0.99
+            item["matched_book_id"] = matched["id"]
+            item["matched_title"] = matched.get("title_norm") or matched.get("file_name")
 
         if matched is None:
             matched = _find_in_update_report(conn, ib_id)
@@ -201,15 +210,170 @@ def analyze_incoming(repo_path: str) -> dict[str, Any]:
             near_match = _find_in_duplicate_groups(conn, ib_id)
             if near_match:
                 item.update(near_match)
+                matched = {"id": near_match.get("matched_book_id")}
+
+        if matched is None:
+            update_match = _find_update_candidate_live(conn, ib_dict, lib_list)
+            if update_match:
+                item.update(update_match)
+                matched = {"id": update_match.get("matched_book_id")}
+
+        if matched is None:
+            top_matches = _find_top_similar_library(conn, ib_dict, lib_list, top_n=3)
+            item["top_matches"] = top_matches
+            if top_matches:
+                best = top_matches[0]
+                item["reason"] = f"存在相似旧书《{best['title']}》（同书分 {best['same_work_score']:.2f}），但未达到新版判断阈值。"
 
         summary[item["classification"]] = summary.get(item["classification"], 0) + 1
         items.append(item)
 
     conn.close()
 
-    report = {"summary": summary, "items": items, "generated_at": now_ts(), "repo_path": str(root), "algorithm_version": "1.0"}
+    report = {"summary": summary, "items": items, "generated_at": now_ts(), "repo_path": str(root), "algorithm_version": "2.0"}
     _save_analysis_report(root, report)
     return report
+
+
+def _find_update_candidate_live(conn, incoming_book: dict, library_books: list[dict]) -> dict | None:
+    """Live detection of update candidates by comparing incoming with library books."""
+    incoming_title = incoming_book.get("title_norm") or incoming_book.get("title_raw") or incoming_book.get("file_name")
+    incoming_author = incoming_book.get("author_norm") or incoming_book.get("author_raw")
+    incoming_chapters = int(incoming_book.get("chapter_count") or 0)
+    incoming_chars = int(incoming_book.get("char_count_clean") or 0)
+
+    candidates = []
+    for lib_book in library_books:
+        lib_title = lib_book.get("title_norm") or lib_book.get("title_raw") or lib_book.get("file_name")
+        lib_author = lib_book.get("author_norm") or lib_book.get("author_raw")
+
+        title_score = title_similarity(incoming_title, lib_title)
+        if title_score < 0.70:
+            continue
+
+        author_score = author_similarity(incoming_author, lib_author)
+        lib_chapters = int(lib_book.get("chapter_count") or 0)
+        lib_chars = int(lib_book.get("char_count_clean") or 0)
+
+        chapter_growth = incoming_chapters - lib_chapters
+        char_growth_ratio = (incoming_chars - lib_chars) / max(1, lib_chars) if lib_chars > 0 else 0
+
+        if title_score >= 0.85 and (author_score >= 0.8 or author_score == 0.0) and incoming_chars > lib_chars * 1.03:
+            try:
+                incoming_ch_list = _chapters(conn, incoming_book["id"])
+                lib_ch_list = _chapters(conn, lib_book["id"])
+                comparison = compare_update_pair(conn, lib_book, incoming_book, lib_ch_list, incoming_ch_list)
+
+                same_work = comparison.get("same_work_score", 0)
+                coverage = comparison.get("coverage_score", 0)
+                new_content = comparison.get("new_content_score", 0)
+                quality_delta = comparison.get("quality_delta", 0)
+
+                candidates.append({
+                    "book_id": lib_book["id"],
+                    "title": lib_title,
+                    "same_work_score": same_work,
+                    "coverage_score": coverage,
+                    "new_content_score": new_content,
+                    "quality_delta": quality_delta,
+                    "chapter_growth": chapter_growth,
+                    "risks": comparison.get("risk_flags", []),
+                    "recommendation": comparison.get("recommendation"),
+                    "reason_summary": comparison.get("reason_summary"),
+                    "comparison": comparison,
+                    "author_conflict": author_score == 0.0,
+                })
+            except Exception:
+                pass
+
+    if not candidates:
+        return None
+
+    candidates.sort(key=lambda x: x["same_work_score"], reverse=True)
+    best = candidates[0]
+
+    same_work = best["same_work_score"]
+    coverage = best["coverage_score"]
+    new_content = best["new_content_score"]
+    quality_delta = best["quality_delta"]
+    risks = list(best["risks"])
+
+    if best.get("author_conflict"):
+        risks.append("author_conflict")
+
+    severe_risks = {"author_conflict", "low_same_work_score", "low_coverage", "quality_drop", "possible_truncated_new_version"}
+
+    if same_work >= 0.85 and coverage >= 0.85 and new_content >= 0.03 and quality_delta >= -10 and not (set(risks) & severe_risks):
+        return {
+            "classification": "update_candidate",
+            "classification_label": "可能是新版",
+            "matched_book_id": best["book_id"],
+            "matched_title": best["title"],
+            "same_work_score": round(same_work, 4),
+            "old_coverage": round(coverage, 4),
+            "new_content_ratio": round(new_content, 4),
+            "chapter_growth": best["chapter_growth"],
+            "quality_delta": round(quality_delta, 2),
+            "recommendation": "manual_review",
+            "reason": f"新下载版本与书架中《{best['title']}》高度相似（同书分 {same_work:.2f}），且新增了约 {new_content*100:.1f}% 内容，可能是新版。建议查看对比后再替换。",
+            "risks": risks,
+            "confidence": round(same_work, 2),
+        }
+
+    if same_work >= 0.75 or (same_work >= 0.70 and coverage >= 0.80):
+        return {
+            "classification": "manual_review",
+            "classification_label": "需人工确认",
+            "matched_book_id": best["book_id"],
+            "matched_title": best["title"],
+            "same_work_score": round(same_work, 4),
+            "old_coverage": round(coverage, 4),
+            "new_content_ratio": round(new_content, 4),
+            "chapter_growth": best["chapter_growth"],
+            "quality_delta": round(quality_delta, 2),
+            "recommendation": "manual_review",
+            "reason": f"根据标题、章节和字数增长判断，可能是新版；由于覆盖率未充分验证或存在风险，建议人工确认。",
+            "risks": risks,
+            "confidence": round(same_work * 0.9, 2),
+        }
+
+    return None
+
+
+def _find_top_similar_library(conn, incoming_book: dict, library_books: list[dict], top_n: int = 3) -> list[dict]:
+    """Find top N similar library books for an incoming book."""
+    incoming_title = incoming_book.get("title_norm") or incoming_book.get("title_raw") or incoming_book.get("file_name")
+    incoming_author = incoming_book.get("author_norm") or incoming_book.get("author_raw")
+
+    scored = []
+    for lib_book in library_books:
+        lib_title = lib_book.get("title_norm") or lib_book.get("title_raw") or lib_book.get("file_name")
+        lib_author = lib_book.get("author_norm") or lib_book.get("author_raw")
+
+        title_score = title_similarity(incoming_title, lib_title)
+        if title_score < 0.50:
+            continue
+
+        author_score = author_similarity(incoming_author, lib_author)
+
+        try:
+            incoming_ch_list = _chapters(conn, incoming_book["id"])
+            lib_ch_list = _chapters(conn, lib_book["id"])
+            comparison = compare_update_pair(conn, lib_book, incoming_book, lib_ch_list, incoming_ch_list)
+            same_work = comparison.get("same_work_score", 0)
+        except Exception:
+            same_work = title_score * 0.7
+
+        scored.append({
+            "book_id": lib_book["id"],
+            "title": lib_title,
+            "title_score": round(title_score, 4),
+            "author_score": round(author_score, 4),
+            "same_work_score": round(same_work, 4),
+        })
+
+    scored.sort(key=lambda x: x["same_work_score"], reverse=True)
+    return scored[:top_n]
 
 
 def _find_in_update_report(conn: sqlite3.Connection, incoming_book_id: int) -> dict | None:
