@@ -175,16 +175,28 @@ async function openBook(id,title){
     readerState.contentLength=text.length;
     if(contentData.encoding){eid('readerEncoding').textContent='编码：'+contentData.encoding.toUpperCase();eid('readerEncoding').style.display=''}
     if(contentData.decode_warning){eid('readerWarning').textContent='⚠ '+contentData.decode_warning;eid('readerWarning').style.display=''}
-    loadChapters(id);
   }else if(contentData&&contentData.error){
     eid('readerContent').textContent='错误: '+contentData.error;
   }else{
     eid('readerContent').textContent='无法加载小说内容';
   }
 
-  if(progressData&&progressData.has_progress&&progressData.scroll_position>0){
-    setTimeout(function(){eid('readerContent').scrollTop=progressData.scroll_position},200);
-    readerToast('已恢复到上次阅读位置');
+  await loadChapters(id);
+
+  if(progressData&&progressData.has_progress){
+    var restored=false;
+    if(progressData.current_chapter_index>0&&readerState.chapters&&readerState.chapters.length>progressData.current_chapter_index){
+      jumpToChapter(progressData.current_chapter_index);
+      restored=true;
+    }else if(progressData.progress_ratio>0){
+      var el=eid('readerContent');
+      el.scrollTop=progressData.progress_ratio*(el.scrollHeight-el.clientHeight);
+      restored=true;
+    }else if(progressData.scroll_position>0){
+      setTimeout(function(){eid('readerContent').scrollTop=progressData.scroll_position},200);
+      restored=true;
+    }
+    if(restored)readerToast('已恢复到上次阅读位置');
   }
   updateReaderProgress();
   readerState.saveThrottle=setInterval(saveReadingProgress,4000);
@@ -433,7 +445,12 @@ async function doReplaceLibrary(incomingId,matchedId){
   if(!confirm(msg))return;
   var r=await postApi('/api/incoming/'+incomingId+'/replace-library/'+matchedId);
   if(!r||!r.ok){toast(r&&r.error||'替换失败');return}
-  toast('已将新版加入书架，旧版已归档');
+  var pt=r.progress_transfer;
+  if(pt&&pt.copied>0){
+    toast('已将新版加入书架，旧版已归档。新版已继承旧版阅读进度。');
+  }else{
+    toast('已替换旧版。旧版没有可继承的阅读进度。');
+  }
   loadUpdates();
   state.offset=0;state.books=[];state.hasMore=true;
   eid('shelf').innerHTML='';

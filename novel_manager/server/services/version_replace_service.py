@@ -9,6 +9,7 @@ from typing import Any
 from ...db import connect as db_connect
 from ...utils import ensure_dir, now_ts
 from .operation_service import _ensure_table, _write_log
+from .progress_service import copy_reading_progress_for_replacement
 
 
 def _get_book(conn, book_id: int) -> dict | None:
@@ -105,6 +106,9 @@ def replace_library_version(repo_path: str, incoming_book_id: int, matched_book_
         )
 
         op_id = str(uuid.uuid4())[:12]
+
+        progress_result = copy_reading_progress_for_replacement(conn, matched_book_id, incoming_book_id)
+
         detail = {
             "incoming_book_id": incoming_book_id,
             "matched_book_id": matched_book_id,
@@ -112,6 +116,13 @@ def replace_library_version(repo_path: str, incoming_book_id: int, matched_book_
             "old_archive_path": str(old_archive_target),
             "new_original_path": str(incoming_path),
             "new_library_path": str(new_library_target),
+            "progress_transfer": {
+                "from_book_id": matched_book_id,
+                "to_book_id": incoming_book_id,
+                "copied": progress_result["copied"],
+                "skipped": progress_result["skipped"],
+                "devices": progress_result["devices"],
+            },
         }
         conn.execute(
             """INSERT INTO web_operation_records (operation_id, operation_type, book_id, title, file_name, source_path, target_path, source_area, target_area, status, reversible, restored, created_at, detail_json)
@@ -121,7 +132,12 @@ def replace_library_version(repo_path: str, incoming_book_id: int, matched_book_
         )
         conn.commit()
 
-        _write_log(root, f"replace_library_version incoming_id={incoming_book_id} matched_id={matched_book_id} old={matched_path}→{old_archive_target} new={incoming_path}→{new_library_target} op_id={op_id}")
+        progress_msg = f" progress_copied={progress_result['copied']}" if progress_result["copied"] > 0 else ""
+        _write_log(root, f"replace_library_version incoming_id={incoming_book_id} matched_id={matched_book_id} old={matched_path}→{old_archive_target} new={incoming_path}→{new_library_target} op_id={op_id}{progress_msg}")
+
+        message = "已将新版加入书架，旧版已归档"
+        if progress_result["copied"] > 0:
+            message += "，新版已继承旧版阅读进度"
 
         return {
             "ok": True,
@@ -131,7 +147,8 @@ def replace_library_version(repo_path: str, incoming_book_id: int, matched_book_
             "old_book_archived_path": str(old_archive_target),
             "new_book_library_path": str(new_library_target),
             "operation_id": op_id,
-            "message": "已将新版加入书架，旧版已归档",
+            "progress_transfer": progress_result,
+            "message": message,
         }
     finally:
         conn.close()
@@ -227,6 +244,7 @@ def restore_replace_library_version(repo_path: str, operation_id: str) -> dict[s
             "matched_book_id": matched_book_id,
             "new_library_to_incoming": str(new_library_path),
             "old_archive_to_library": str(old_archive_path),
+            "progress_restore_policy": "preserve_both",
         }
         conn.execute(
             """INSERT INTO web_operation_records (operation_id, operation_type, book_id, title, file_name, source_path, target_path, source_area, target_area, status, reversible, restored, created_at, detail_json)

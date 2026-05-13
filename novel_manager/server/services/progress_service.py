@@ -86,3 +86,60 @@ def save_progress(
     conn.commit()
     conn.close()
     return {"ok": True, "book_id": book_id, "progress_ratio": ratio, "scroll_position": pos, "current_chapter_index": ch_idx}
+
+
+def copy_reading_progress_for_replacement(conn, old_book_id: int, new_book_id: int) -> dict[str, Any]:
+    """Copy reading progress from old book to new book after version replacement.
+
+    If new book already has progress for a device_id, keep the newer one.
+    Never delete old book's progress records.
+    """
+    try:
+        old_rows = conn.execute(
+            "SELECT device_id, progress_ratio, scroll_position, current_chapter_index, updated_at FROM reading_progress WHERE book_id = ?",
+            (old_book_id,),
+        ).fetchall()
+    except Exception:
+        return {"copied": 0, "skipped": 0, "devices": []}
+
+    if not old_rows:
+        return {"copied": 0, "skipped": 0, "devices": []}
+
+    copied = 0
+    skipped = 0
+    devices = []
+
+    for row in old_rows:
+        device_id = row[0]
+        progress_ratio = row[1]
+        scroll_position = row[2]
+        current_chapter_index = row[3]
+        old_updated_at = row[4]
+
+        existing = conn.execute(
+            "SELECT updated_at FROM reading_progress WHERE book_id = ? AND device_id = ?",
+            (new_book_id, device_id),
+        ).fetchone()
+
+        if existing:
+            new_updated_at = existing[0]
+            if old_updated_at and new_updated_at and old_updated_at > new_updated_at:
+                conn.execute(
+                    """UPDATE reading_progress SET progress_ratio = ?, scroll_position = ?, current_chapter_index = ?, updated_at = ?
+                       WHERE book_id = ? AND device_id = ?""",
+                    (progress_ratio, scroll_position, current_chapter_index, old_updated_at, new_book_id, device_id),
+                )
+                copied += 1
+                devices.append(device_id)
+            else:
+                skipped += 1
+        else:
+            conn.execute(
+                """INSERT INTO reading_progress (book_id, device_id, progress_ratio, scroll_position, current_chapter_index, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (new_book_id, device_id, progress_ratio, scroll_position, current_chapter_index, old_updated_at),
+            )
+            copied += 1
+            devices.append(device_id)
+
+    return {"copied": copied, "skipped": skipped, "devices": devices}

@@ -8,6 +8,7 @@ import pytest
 
 from novel_manager.server.services.version_replace_service import replace_library_version, restore_replace_library_version
 from novel_manager.server.services.operation_service import list_operations, get_operation
+from novel_manager.server.services.progress_service import save_progress, get_progress
 
 
 def _make_repo_for_replace() -> Path:
@@ -34,6 +35,17 @@ def _make_repo_for_replace() -> Path:
             status TEXT,
             created_at TEXT,
             updated_at TEXT
+        );
+        CREATE TABLE IF NOT EXISTS reading_progress (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            book_id INTEGER NOT NULL,
+            device_id TEXT NOT NULL DEFAULT 'web',
+            progress_ratio REAL NOT NULL DEFAULT 0,
+            scroll_position INTEGER NOT NULL DEFAULT 0,
+            current_chapter_index INTEGER NOT NULL DEFAULT 0,
+            updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+            FOREIGN KEY (book_id) REFERENCES books(id) ON DELETE CASCADE,
+            UNIQUE(book_id, device_id)
         );
         CREATE TABLE IF NOT EXISTS web_operation_records (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -298,3 +310,175 @@ class TestNoPermanentDelete:
         assert "os.remove" not in content
         assert "shutil.rmtree" not in content
         assert ".unlink(" not in content
+
+
+class TestProgressInheritance:
+    """Tests for reading progress inheritance during version replacement."""
+
+    def test_replace_copies_old_progress_to_new(self) -> None:
+        """Replace copies old book's reading progress to new book."""
+        repo = _make_repo_for_replace()
+        old_book = _make_book(repo, "library", "old.txt", 1, "Old")
+        new_book = _make_book(repo, "incoming", "new.txt", 2, "New")
+
+        save_progress(str(repo), 1, 0.65, 320, "web", 5)
+
+        result = replace_library_version(str(repo), 2, 1)
+        assert result["ok"] is True
+        assert result["progress_transfer"]["copied"] == 1
+        assert result["progress_transfer"]["skipped"] == 0
+        assert "web" in result["progress_transfer"]["devices"]
+
+        new_progress = get_progress(str(repo), 2, "web")
+        assert new_progress is not None
+        assert abs(new_progress["progress_ratio"] - 0.65) < 0.01
+        assert new_progress["scroll_position"] == 320
+        assert new_progress["current_chapter_index"] == 5
+
+    def test_replace_copies_multiple_devices(self) -> None:
+        """Replace copies progress from all devices."""
+        repo = _make_repo_for_replace()
+        old_book = _make_book(repo, "library", "old.txt", 1, "Old")
+        new_book = _make_book(repo, "incoming", "new.txt", 2, "New")
+
+        save_progress(str(repo), 1, 0.5, 100, "web", 3)
+        save_progress(str(repo), 1, 0.7, 200, "phone", 7)
+        save_progress(str(repo), 1, 0.3, 50, "tablet", 2)
+
+        result = replace_library_version(str(repo), 2, 1)
+        assert result["ok"] is True
+        assert result["progress_transfer"]["copied"] == 3
+        assert sorted(result["progress_transfer"]["devices"]) == ["phone", "tablet", "web"]
+
+        for device, ratio, pos, ch in [("web", 0.5, 100, 3), ("phone", 0.7, 200, 7), ("tablet", 0.3, 50, 2)]:
+            p = get_progress(str(repo), 2, device)
+            assert p is not None
+            assert abs(p["progress_ratio"] - ratio) < 0.01
+            assert p["scroll_position"] == pos
+            assert p["current_chapter_index"] == ch
+
+    def test_replace_keeps_newer_progress_on_conflict(self) -> None:
+        """When new book already has progress for a device, keep the newer one."""
+        repo = _make_repo_for_replace()
+        old_book = _make_book(repo, "library", "old.txt", 1, "Old")
+        new_book = _make_book(repo, "incoming", "new.txt", 2, "New")
+
+        # Old book has older progress
+        db_path = repo / "db" / "novel_repo.sqlite"
+        conn = sqlite3.connect(str(db_path))
+        conn.execute(
+            "INSERT INTO reading_progress (book_id, device_id, progress_ratio, scroll_position, current_chapter_index, updated_at) VALUES (1, 'web', 0.4, 100, 3, '2024-01-01 10:00:00')",
+        )
+        # New book already has newer progress
+        conn.execute(
+            "INSERT INTO reading_progress (book_id, device_id, progress_ratio, scroll_position, current_chapter_index, updated_at) VALUES (2, 'web', 0.8, 500, 10, '2024-06-01 10:00:00')",
+        )
+        conn.commit()
+        conn.close()
+
+        result = replace_library_version(str(repo), 2, 1)
+        assert result["ok"] is True
+        assert result["progress_transfer"]["skipped"] == 1
+
+        # New book's progress should remain unchanged
+        p = get_progress(str(repo), 2, "web")
+        assert p is not None
+        assert abs(p["progress_ratio"] - 0.8) < 0.01
+
+    def test_replace_overwrites_when_old_is_newer(self) -> None:
+        """When old book has newer progress than new book, overwrite with old."""
+        repo = _make_repo_for_replace()
+        old_book = _make_book(repo, "library", "old.txt", 1, "Old")
+        new_book = _make_book(repo, "incoming", "new.txt", 2, "New")
+
+        db_path = repo / "db" / "novel_repo.sqlite"
+        conn = sqlite3.connect(str(db_path))
+        # Old book has newer progress
+        conn.execute(
+            "INSERT INTO reading_progress (book_id, device_id, progress_ratio, scroll_position, current_chapter_index, updated_at) VALUES (1, 'web', 0.9, 800, 15, '2024-06-01 10:00:00')",
+        )
+        # New book has older progress
+        conn.execute(
+            "INSERT INTO reading_progress (book_id, device_id, progress_ratio, scroll_position, current_chapter_index, updated_at) VALUES (2, 'web', 0.2, 50, 1, '2024-01-01 10:00:00')",
+        )
+        conn.commit()
+        conn.close()
+
+        result = replace_library_version(str(repo), 2, 1)
+        assert result["ok"] is True
+        assert result["progress_transfer"]["copied"] == 1
+
+        p = get_progress(str(repo), 2, "web")
+        assert p is not None
+        assert abs(p["progress_ratio"] - 0.9) < 0.01
+        assert p["scroll_position"] == 800
+
+    def test_replace_detail_json_contains_progress_transfer(self) -> None:
+        """Operation record detail_json includes progress_transfer."""
+        repo = _make_repo_for_replace()
+        old_book = _make_book(repo, "library", "old.txt", 1, "Old")
+        new_book = _make_book(repo, "incoming", "new.txt", 2, "New")
+
+        save_progress(str(repo), 1, 0.55, 250, "web", 4)
+
+        result = replace_library_version(str(repo), 2, 1)
+        assert result["ok"] is True
+
+        import json
+        db_path = repo / "db" / "novel_repo.sqlite"
+        conn = sqlite3.connect(str(db_path))
+        row = conn.execute(
+            "SELECT detail_json FROM web_operation_records WHERE operation_type = 'replace_library_version'",
+        ).fetchone()
+        conn.close()
+        assert row is not None
+
+        detail = json.loads(row[0])
+        assert "progress_transfer" in detail
+        assert detail["progress_transfer"]["from_book_id"] == 1
+        assert detail["progress_transfer"]["to_book_id"] == 2
+        assert detail["progress_transfer"]["copied"] == 1
+
+    def test_replace_no_old_progress_works(self) -> None:
+        """Replace works normally when old book has no reading progress."""
+        repo = _make_repo_for_replace()
+        old_book = _make_book(repo, "library", "old.txt", 1, "Old")
+        new_book = _make_book(repo, "incoming", "new.txt", 2, "New")
+
+        result = replace_library_version(str(repo), 2, 1)
+        assert result["ok"] is True
+        assert result["progress_transfer"]["copied"] == 0
+        assert result["progress_transfer"]["skipped"] == 0
+        assert result["progress_transfer"]["devices"] == []
+
+    def test_restore_preserves_progress(self) -> None:
+        """Restore doesn't delete reading progress from either book."""
+        repo = _make_repo_for_replace()
+        old_book = _make_book(repo, "library", "old.txt", 1, "Old")
+        new_book = _make_book(repo, "incoming", "new.txt", 2, "New")
+
+        save_progress(str(repo), 1, 0.6, 300, "web", 5)
+
+        replace_result = replace_library_version(str(repo), 2, 1)
+        assert replace_result["ok"] is True
+
+        # After replace, new book (now in library) should have progress
+        p = get_progress(str(repo), 2, "web")
+        assert p is not None
+
+        ops = list_operations(str(repo))
+        op_id = None
+        for op in ops["items"]:
+            if op["operation_type"] == "replace_library_version" and not op["restored"]:
+                op_id = op["operation_id"]
+                break
+        assert op_id is not None
+
+        restore_result = restore_replace_library_version(str(repo), op_id)
+        assert restore_result["ok"] is True
+
+        # After restore, both books' progress should still exist
+        old_p = get_progress(str(repo), 1, "web")
+        new_p = get_progress(str(repo), 2, "web")
+        assert old_p is not None
+        assert new_p is not None
