@@ -60,19 +60,41 @@ def replace_library_version(repo_path: str, incoming_book_id: int, matched_book_
     try:
         incoming_book = _get_book(conn, incoming_book_id)
         if incoming_book is None:
-            return {"ok": False, "error": "新下载小说不存在"}
-        if incoming_book.get("repo_area") != "incoming":
-            return {"ok": False, "error": "只能处理新下载区的小说"}
+            return {"ok": False, "error_code": "book_not_found", "error": "新下载小说不存在", "debug": {"book_id": incoming_book_id}}
+
+        incoming_area = incoming_book.get("repo_area", "")
+        incoming_path_str = incoming_book.get("current_path", "")
+        incoming_path_exists = Path(incoming_path_str).exists() if incoming_path_str else False
+
+        if incoming_area != "incoming":
+            return {
+                "ok": False,
+                "error_code": "incoming_item_stale",
+                "error": "该文件已不在新下载区，可能已经被处理。请刷新检测结果。",
+                "debug": {"book_id": incoming_book_id, "current_repo_area": incoming_area, "current_path": incoming_path_str, "path_exists": incoming_path_exists},
+            }
 
         matched_book = _get_book(conn, matched_book_id)
         if matched_book is None:
-            return {"ok": False, "error": "匹配的小说不存在"}
-        if matched_book.get("repo_area") != "library":
-            return {"ok": False, "error": "只能替换书架中的小说"}
+            return {"ok": False, "error_code": "book_not_found", "error": "匹配的小说不存在", "debug": {"book_id": matched_book_id}}
 
-        incoming_path = _resolve_and_check(root, incoming_book.get("current_path", ""))
+        matched_area = matched_book.get("repo_area", "")
+        if matched_area != "library":
+            return {
+                "ok": False,
+                "error_code": "matched_not_in_library",
+                "error": "匹配的小说已不在书架中，无法替换。请刷新检测结果。",
+                "debug": {"book_id": matched_book_id, "current_repo_area": matched_area},
+            }
+
+        incoming_path = _resolve_and_check(root, incoming_path_str)
         if incoming_path is None or not incoming_path.exists():
-            return {"ok": False, "error": "新下载文件不存在或路径不合法"}
+            return {
+                "ok": False,
+                "error_code": "incoming_file_missing",
+                "error": "新下载文件不存在或路径不合法",
+                "debug": {"book_id": incoming_book_id, "current_repo_area": incoming_area, "current_path": incoming_path_str, "path_exists": incoming_path_exists},
+            }
 
         matched_path = _resolve_and_check(root, matched_book.get("current_path", ""))
         if matched_path is None or not matched_path.exists():

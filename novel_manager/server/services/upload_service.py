@@ -113,6 +113,7 @@ def scan_incoming(repo_path: str) -> dict[str, Any]:
 def analyze_incoming(repo_path: str) -> dict[str, Any]:
     """Analyze incoming books and classify them."""
     root = Path(repo_path).expanduser().resolve()
+    incoming_dir = root / "incoming"
     try:
         conn = db_connect(root)
         conn.row_factory = sqlite3.Row
@@ -129,19 +130,45 @@ def analyze_incoming(repo_path: str) -> dict[str, Any]:
     lib_list = [dict(r) for r in library_books]
 
     items: list[dict] = []
-    summary = {"incoming_count": len(incoming_books), "new_book": 0, "exact_duplicate": 0, "update_candidate": 0, "near_duplicate": 0, "manual_review": 0, "reject": 0}
+    summary = {"incoming_count": 0, "new_book": 0, "exact_duplicate": 0, "update_candidate": 0, "near_duplicate": 0, "manual_review": 0, "reject": 0, "stale": 0}
 
     for ib in incoming_books:
         ib_dict = dict(ib)
         ib_id = ib["id"]
+        current_path = ib_dict.get("current_path", "")
+        path_exists = False
+        path_in_incoming = False
+
+        if current_path:
+            try:
+                p = Path(current_path)
+                if p.exists():
+                    path_exists = True
+                    try:
+                        p.resolve().relative_to(incoming_dir.resolve())
+                        path_in_incoming = True
+                    except ValueError:
+                        pass
+            except Exception:
+                pass
+
+        if not path_exists or not path_in_incoming:
+            summary["stale"] += 1
+            continue
+
+        summary["incoming_count"] += 1
         item = {
             "incoming_book_id": ib_id,
             "incoming_title": ib["title_norm"] or ib["title_raw"] or ib["file_name"],
             "incoming_file": ib["file_name"] or "",
+            "current_repo_area": "incoming",
+            "current_path_exists": True,
+            "is_stale": False,
             "classification": "new_book",
             "classification_label": "新书",
             "matched_book_id": None,
             "matched_title": None,
+            "matched_repo_area": None,
             "confidence": 1.0,
             "same_work_score": None,
             "old_coverage": None,
@@ -152,6 +179,10 @@ def analyze_incoming(repo_path: str) -> dict[str, Any]:
             "reason": "未匹配到已有书籍，建议导入书库。",
             "risks": [],
             "top_matches": [],
+            "can_import": True,
+            "can_move_review": False,
+            "can_replace": False,
+            "available_actions": ["import_to_library", "compare"],
         }
 
         raw_hash = ib["raw_sha256"]
@@ -240,6 +271,8 @@ def analyze_incoming(repo_path: str) -> dict[str, Any]:
                 matched = {"id": best["book_id"]}
             else:
                 item["reason"] = f"存在相似旧书《{best['title']}》（同书分 {best['same_work_score']:.2f}），但未达到新版判断阈值。"
+
+        _set_available_actions(item, conn)
 
         summary[item["classification"]] = summary.get(item["classification"], 0) + 1
         items.append(item)
@@ -538,7 +571,36 @@ def _save_analysis_report(repo: Path, report: dict) -> None:
 
 
 def _empty_analysis() -> dict:
-    return {"summary": {"incoming_count": 0, "new_book": 0, "exact_duplicate": 0, "update_candidate": 0, "near_duplicate": 0, "manual_review": 0, "reject": 0}, "items": []}
+    return {"summary": {"incoming_count": 0, "new_book": 0, "exact_duplicate": 0, "update_candidate": 0, "near_duplicate": 0, "manual_review": 0, "reject": 0, "stale": 0}, "items": []}
+
+
+def _set_available_actions(item: dict, conn) -> None:
+    """Set available_actions based on classification and matched book status."""
+    classification = item.get("classification", "new_book")
+    matched_book_id = item.get("matched_book_id")
+
+    actions = []
+    item["can_import"] = False
+    item["can_move_review"] = False
+    item["can_replace"] = False
+
+    if classification == "new_book":
+        item["can_import"] = True
+        actions.append("import_to_library")
+    elif classification == "exact_duplicate":
+        item["can_move_review"] = True
+        actions.append("move_to_review_duplicates")
+    elif classification == "update_candidate":
+        if matched_book_id:
+            matched_book = conn.execute("SELECT repo_area FROM books WHERE id = ?", (matched_book_id,)).fetchone()
+            if matched_book and matched_book["repo_area"] == "library":
+                item["can_replace"] = True
+                actions.append("replace_library_version")
+
+    if matched_book_id:
+        actions.append("compare")
+
+    item["available_actions"] = actions
 
 
 def _write_log(repo: Path, summary: str) -> None:

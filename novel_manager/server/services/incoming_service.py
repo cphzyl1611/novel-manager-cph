@@ -14,6 +14,41 @@ def _get_book(conn, book_id: int) -> dict | None:
     return dict(row) if row else None
 
 
+def _validate_incoming_book(conn, book_id: int, root: Path) -> dict[str, Any]:
+    """Validate that book is still in incoming area and file exists."""
+    book = _get_book(conn, book_id)
+    if book is None:
+        return {"ok": False, "error_code": "book_not_found", "error": "小说不存在", "debug": {"book_id": book_id}}
+
+    repo_area = book.get("repo_area", "")
+    current_path = book.get("current_path", "")
+    path_exists = False
+
+    if current_path:
+        try:
+            path_exists = Path(current_path).exists()
+        except Exception:
+            pass
+
+    if repo_area != "incoming":
+        return {
+            "ok": False,
+            "error_code": "incoming_item_stale",
+            "error": "该文件已不在新下载区，可能已经被处理。请刷新检测结果。",
+            "debug": {"book_id": book_id, "current_repo_area": repo_area, "current_path": current_path, "path_exists": path_exists},
+        }
+
+    if not path_exists:
+        return {
+            "ok": False,
+            "error_code": "incoming_file_missing",
+            "error": "源文件不存在，可能已被移动或删除。请刷新检测结果。",
+            "debug": {"book_id": book_id, "current_repo_area": repo_area, "current_path": current_path, "path_exists": path_exists},
+        }
+
+    return {"ok": True, "book": book}
+
+
 def _safe_move(source: Path, dest_dir: Path) -> Path:
     ensure_dir(dest_dir)
     target = dest_dir / source.name
@@ -52,18 +87,19 @@ def import_to_library(repo_path: str, book_id: int) -> dict[str, Any]:
         conn = db_connect(root)
     except Exception:
         return {"ok": False, "error": "无法连接数据库"}
-    book = _get_book(conn, book_id)
-    if book is None:
-        conn.close(); return {"ok": False, "error": "小说不存在"}
-    if book.get("repo_area") != "incoming":
-        conn.close(); return {"ok": False, "error": "只能处理新下载区的小说"}
+
+    validation = _validate_incoming_book(conn, book_id, root)
+    if not validation["ok"]:
+        conn.close()
+        return validation
+
+    book = validation["book"]
     source = Path(book["current_path"])
-    if not source.exists():
-        conn.close(); return {"ok": False, "error": "源文件不存在"}
     try:
         target = _safe_move(source, root / "library")
     except OSError as e:
-        conn.close(); return {"ok": False, "error": str(e)}
+        conn.close()
+        return {"ok": False, "error": str(e)}
     _update_location(conn, book_id, "library", target)
     _write_op(root, "import_to_library", book_id, str(source), str(target))
     title = book.get("title_norm") or book.get("title_raw") or book.get("file_name", "")
@@ -78,18 +114,19 @@ def move_to_review_duplicates(repo_path: str, book_id: int) -> dict[str, Any]:
         conn = db_connect(root)
     except Exception:
         return {"ok": False, "error": "无法连接数据库"}
-    book = _get_book(conn, book_id)
-    if book is None:
-        conn.close(); return {"ok": False, "error": "小说不存在"}
-    if book.get("repo_area") != "incoming":
-        conn.close(); return {"ok": False, "error": "只能处理新下载区的小说"}
+
+    validation = _validate_incoming_book(conn, book_id, root)
+    if not validation["ok"]:
+        conn.close()
+        return validation
+
+    book = validation["book"]
     source = Path(book["current_path"])
-    if not source.exists():
-        conn.close(); return {"ok": False, "error": "源文件不存在"}
     try:
         target = _safe_move(source, root / "review_duplicates")
     except OSError as e:
-        conn.close(); return {"ok": False, "error": str(e)}
+        conn.close()
+        return {"ok": False, "error": str(e)}
     _update_location(conn, book_id, "review_duplicates", target)
     _write_op(root, "move_to_review_duplicates", book_id, str(source), str(target))
     title = book.get("title_norm") or book.get("title_raw") or book.get("file_name", "")

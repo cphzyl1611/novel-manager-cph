@@ -482,3 +482,60 @@ class TestProgressInheritance:
         new_p = get_progress(str(repo), 2, "web")
         assert old_p is not None
         assert new_p is not None
+
+
+class TestStaleItemErrors:
+    """Tests for stale item error handling."""
+
+    def test_replace_library_returns_stale_error_for_library_book(self) -> None:
+        """replace-library should return incoming_item_stale when incoming book is in library."""
+        repo = _make_repo_for_replace()
+        old_book = _make_book(repo, "library", "old.txt", 1, "Old")
+        new_book = _make_book(repo, "library", "new.txt", 2, "New")
+
+        db_path = repo / "db" / "novel_repo.sqlite"
+        conn = sqlite3.connect(str(db_path))
+        conn.execute("UPDATE books SET repo_area = 'library' WHERE id = 2")
+        conn.commit()
+        conn.close()
+
+        result = replace_library_version(str(repo), 2, 1)
+
+        assert result["ok"] is False
+        assert result.get("error_code") == "incoming_item_stale"
+        assert "debug" in result
+
+    def test_replace_library_returns_matched_not_in_library(self) -> None:
+        """replace-library should return matched_not_in_library when matched book is not in library."""
+        repo = _make_repo_for_replace()
+        old_book = _make_book(repo, "archive", "old.txt", 1, "Old")
+        new_book = _make_book(repo, "incoming", "new.txt", 2, "New")
+
+        result = replace_library_version(str(repo), 2, 1)
+
+        assert result["ok"] is False
+        assert result.get("error_code") == "matched_not_in_library"
+
+    def test_import_returns_stale_error_for_library_book(self) -> None:
+        """import_to_library should return incoming_item_stale when book is in library."""
+        from novel_manager.server.services.incoming_service import import_to_library
+
+        repo = _make_repo_for_replace()
+        book = _make_book(repo, "library", "book.txt", 1, "Test")
+
+        result = import_to_library(str(repo), 1)
+
+        assert result["ok"] is False
+        assert result.get("error_code") == "incoming_item_stale"
+
+    def test_move_review_returns_stale_error_for_library_book(self) -> None:
+        """move_to_review_duplicates should return incoming_item_stale when book is in library."""
+        from novel_manager.server.services.incoming_service import move_to_review_duplicates
+
+        repo = _make_repo_for_replace()
+        book = _make_book(repo, "library", "book.txt", 1, "Test")
+
+        result = move_to_review_duplicates(str(repo), 1)
+
+        assert result["ok"] is False
+        assert result.get("error_code") == "incoming_item_stale"

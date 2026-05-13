@@ -381,3 +381,108 @@ class TestIncomingAnalysisUpdateDetection:
         assert item["classification"] != "new_book", f"Should not be new_book, got {item['classification']}"
         assert item["same_work_score"] is not None
         assert item["same_work_score"] >= 0.80
+
+
+class TestIncomingAnalysisStaleItems:
+    """Tests for stale item handling in incoming analysis."""
+
+    def test_analyze_incoming_excludes_library_books(self) -> None:
+        """analyze_incoming should not return books with repo_area=library."""
+        repo = _make_repo_for_analysis()
+        _make_book(repo, "library", "book.txt", 1, "测试小说", "测试作者")
+
+        result = analyze_incoming(str(repo))
+
+        assert result["summary"]["incoming_count"] == 0
+        assert len(result["items"]) == 0
+
+    def test_analyze_incoming_excludes_missing_files(self) -> None:
+        """analyze_incoming should not return items whose files don't exist."""
+        repo = _make_repo_for_analysis()
+
+        db_path = repo / "db" / "novel_repo.sqlite"
+        conn = sqlite3.connect(str(db_path))
+        conn.execute(
+            "INSERT INTO books (id, title_raw, title_norm, file_name, current_path, repo_area, quality_score, chapter_count, char_count_clean, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'normal', '2024-01-01', '2024-01-01')",
+            (1, "测试小说", "测试小说", "missing.txt", str(repo / "incoming" / "missing.txt"), "incoming", 80.0, 50, 50000),
+        )
+        conn.commit()
+        conn.close()
+
+        result = analyze_incoming(str(repo))
+
+        assert result["summary"]["incoming_count"] == 0
+        assert result["summary"]["stale"] == 1
+
+    def test_new_book_has_available_actions(self) -> None:
+        """new_book item should have available_actions = ['import_to_library', 'compare']."""
+        repo = _make_repo_for_analysis()
+        _make_book(repo, "incoming", "new_book.txt", 1, "全新小说", "作者A")
+
+        result = analyze_incoming(str(repo))
+
+        assert result["summary"]["new_book"] == 1
+        item = result["items"][0]
+        assert "import_to_library" in item["available_actions"]
+        assert item["can_import"] is True
+
+    def test_exact_duplicate_has_available_actions(self) -> None:
+        """exact_duplicate item should have available_actions = ['move_to_review_duplicates', 'compare']."""
+        repo = _make_repo_for_analysis()
+
+        book_path = _make_book(repo, "library", "book.txt", 1, "测试小说", "测试作者", quality=80.0, chapters=50, chars=50000)
+
+        db_path = repo / "db" / "novel_repo.sqlite"
+        conn = sqlite3.connect(str(db_path))
+        import hashlib
+        content = book_path.read_text(encoding="utf-8")
+        raw_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
+        conn.execute("UPDATE books SET raw_sha256 = ? WHERE id = 1", (raw_hash,))
+        conn.execute(
+            "INSERT INTO books (id, title_raw, title_norm, file_name, current_path, repo_area, quality_score, chapter_count, char_count_clean, raw_sha256, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'normal', '2024-01-01', '2024-01-01')",
+            (2, "测试小说", "测试小说", "book_copy.txt", str(repo / "incoming" / "book_copy.txt"), "incoming", 80.0, 50, 50000, raw_hash),
+        )
+        (repo / "incoming" / "book_copy.txt").write_text(content, encoding="utf-8")
+        conn.commit()
+        conn.close()
+
+        result = analyze_incoming(str(repo))
+
+        item = result["items"][0]
+        assert item["classification"] == "exact_duplicate"
+        assert "move_to_review_duplicates" in item["available_actions"]
+        assert item["can_move_review"] is True
+
+    def test_update_candidate_has_replace_action_when_matched_in_library(self) -> None:
+        """update_candidate should have replace_library_version only when matched book is in library."""
+        repo = _make_repo_for_analysis()
+
+        old_chapters = [f"章节{i}" for i in range(1, 81)]
+        new_chapters = old_chapters + [f"章节{i}" for i in range(81, 91)]
+
+        _make_book(repo, "library", "old_book.txt", 1, "测试小说", "测试作者", quality=75.0, chapters=80, chars=80000, chapter_titles=old_chapters)
+        _make_book(repo, "incoming", "new_book.txt", 2, "测试小说", "测试作者", quality=80.0, chapters=90, chars=90000, chapter_titles=new_chapters)
+
+        result = analyze_incoming(str(repo))
+
+        item = result["items"][0]
+        assert item["classification"] == "update_candidate"
+        assert "replace_library_version" in item["available_actions"]
+        assert item["can_replace"] is True
+
+    def test_update_candidate_no_replace_when_matched_not_in_library(self) -> None:
+        """update_candidate should not have replace action when matched book is not in library."""
+        repo = _make_repo_for_analysis()
+
+        old_chapters = [f"章节{i}" for i in range(1, 81)]
+        new_chapters = old_chapters + [f"章节{i}" for i in range(81, 91)]
+
+        _make_book(repo, "archive", "old_book.txt", 1, "测试小说", "测试作者", quality=75.0, chapters=80, chars=80000, chapter_titles=old_chapters)
+        _make_book(repo, "incoming", "new_book.txt", 2, "测试小说", "测试作者", quality=80.0, chapters=90, chars=90000, chapter_titles=new_chapters)
+
+        result = analyze_incoming(str(repo))
+
+        item = result["items"][0]
+        if item["classification"] == "update_candidate":
+            assert "replace_library_version" not in item.get("available_actions", [])
+            assert item.get("can_replace") is not True

@@ -281,22 +281,26 @@ function renderAnalysis(){
     +'<div class="sum-card sum-near"><span>'+sum.near_duplicate+'</span>近似重复</div>'
     +'<div class="sum-card sum-rev"><span>'+sum.manual_review+'</span>需人工确认</div>'
     +'</div>';
+  var safeCount=0;
+  for(var i=0;i<d.items.length;i++){var aa=d.items[i].available_actions||[];if(aa.indexOf('import_to_library')>=0||aa.indexOf('move_to_review_duplicates')>=0)safeCount++}
+  if(safeCount>0)s.innerHTML+='<button class="btn-primary" style="margin:8px 0" onclick="doBatchSafe()">一键处理安全项 ('+safeCount+'项)</button>';
   var cm={new_book:'new',exact_duplicate:'dup',update_candidate:'upd',near_duplicate:'near',manual_review:'rev',risky:'risk',reject:'reject'};
   var h='';
   for(var i=0;i<d.items.length;i++){
     var it=d.items[i],cls=cm[it.classification]||'';
-    h+='<div class="analysis-card '+cls+'">'
+    var aa=it.available_actions||[];
+    h+='<div class="analysis-card '+cls+'" data-incoming-id="'+it.incoming_book_id+'">'
       +'<div class="ac-head"><span class="ac-badge '+cls+'">'+esc(it.classification_label)+'</span><span class="ac-title">'+esc(it.incoming_title)+'</span></div>'
       +'<div class="ac-meta">文件: '+esc(it.incoming_file)+'</div>';
     if(it.matched_title)h+='<div class="ac-match">匹配: '+esc(it.matched_title)+'</div>';
     h+='<div class="ac-reason">'+esc(it.reason)+'</div>';
     if(it.risks&&it.risks.length>0)h+='<div class="ac-risks">风险: '+it.risks.map(function(r){return'<span class="risk-tag">'+esc(r)+'</span>'}).join(' ')+'</div>';
     h+='<div class="ac-actions"><button class="btn-sm" onclick="openBook('+it.incoming_book_id+',\''+esc(it.incoming_title)+'\')">打开</button>';
-    if(it.matched_book_id)h+='<button class="btn-sm" onclick="openBook('+it.matched_book_id+',\''+esc(it.matched_title||'')+'\')">打开旧书</button>';
-    if(it.classification==='new_book')h+='<button class="btn-sm btn-action" onclick="doImport('+it.incoming_book_id+')">加入书架</button>';
-    if(it.classification==='exact_duplicate')h+='<button class="btn-sm btn-action" onclick="doMoveReview('+it.incoming_book_id+')">移入重复复核区</button>';
-    if(it.classification==='update_candidate'&&it.matched_book_id)h+='<button class="btn-sm btn-action replace-btn" data-incoming-id="'+it.incoming_book_id+'" data-matched-id="'+it.matched_book_id+'">确认替换旧版</button>';
-    if(it.matched_book_id)h+='<button class="btn-sm" onclick="showCompare('+it.incoming_book_id+','+it.matched_book_id+')">对比</button>';
+    if(aa.indexOf('import_to_library')>=0)h+='<button class="btn-sm btn-action" onclick="doImport('+it.incoming_book_id+')">加入书架</button>';
+    if(aa.indexOf('move_to_review_duplicates')>=0)h+='<button class="btn-sm btn-action" onclick="doMoveReview('+it.incoming_book_id+')">移入重复复核区</button>';
+    if(aa.indexOf('replace_library_version')>=0)h+='<button class="btn-sm btn-action replace-btn" data-incoming-id="'+it.incoming_book_id+'" data-matched-id="'+it.matched_book_id+'">确认替换旧版</button>';
+    if(aa.indexOf('compare')>=0&&it.matched_book_id)h+='<button class="btn-sm" onclick="showCompare('+it.incoming_book_id+','+it.matched_book_id+')">对比</button>';
+    if(aa.length===0)h+='<span class="btn-sm" style="color:#888">已处理/不可操作</span>';
     h+='</div></div>'
   }
   c.innerHTML=h
@@ -305,14 +309,25 @@ function renderAnalysis(){
 async function doImport(bookId){
   if(!confirm('加入书架？\n\n将把这本新书从新下载区加入小说库。\n不会覆盖已有文件，也不会修改 TXT 内容。'))return;
   var r=await postApi('/api/incoming/'+bookId+'/import-to-library');
-  if(!r||!r.ok){toast(r&&r.error||'操作失败');return}
-  toast('已加入书架');loadUpdates()
+  if(!r||!r.ok){
+    if(r&&r.error_code==='incoming_item_stale'){toast('该项目已经被处理，正在刷新检测结果。');doAnalyzeIncoming();return}
+    toast(r&&r.error||'操作失败');return
+  }
+  _removeAnalysisCard(bookId);
+  toast('已加入书架');
+  doAnalyzeIncoming();
+  state.offset=0;state.books=[];state.hasMore=true;eid('shelf').innerHTML='';loadBooks()
 }
 async function doMoveReview(bookId){
   if(!confirm('移入重复复核区？\n\n将只把新下载区的这份文件移入重复复核区，\n不会删除任何文件，也不会影响小说库中已有版本。'))return;
   var r=await postApi('/api/incoming/'+bookId+'/move-to-review-duplicates');
-  if(!r||!r.ok){toast(r&&r.error||'操作失败');return}
-  toast('已移入重复复核区');loadUpdates()
+  if(!r||!r.ok){
+    if(r&&r.error_code==='incoming_item_stale'){toast('该项目已经被处理，正在刷新检测结果。');doAnalyzeIncoming();return}
+    toast(r&&r.error||'操作失败');return
+  }
+  _removeAnalysisCard(bookId);
+  toast('已移入重复复核区');
+  doAnalyzeIncoming()
 }
 async function showCompare(b1,b2){
   var d=await api('/api/incoming/'+b1+'/compare/'+b2);if(!d||!d.ok){toast('获取对比失败');return}
@@ -444,14 +459,19 @@ async function doReplaceLibrary(incomingId,matchedId){
   var msg=['确认替换旧版？','','这会执行以下操作：','','1. 将书架中的旧版移动到 archive/replaced；','2. 将新下载区中的新版加入书架；','3. 不会删除任何文件；','4. 不会覆盖已有文件；','5. 可在"操作记录"中恢复。'].join('\n');
   if(!confirm(msg))return;
   var r=await postApi('/api/incoming/'+incomingId+'/replace-library/'+matchedId);
-  if(!r||!r.ok){toast(r&&r.error||'替换失败');return}
+  if(!r||!r.ok){
+    if(r&&r.error_code==='incoming_item_stale'){toast('该项目已经被处理，正在刷新检测结果。');doAnalyzeIncoming();return}
+    if(r&&r.error_code==='matched_not_in_library'){toast('匹配的小说已不在书架中，请刷新检测结果。');doAnalyzeIncoming();return}
+    toast(r&&r.error||'替换失败');return
+  }
+  _removeAnalysisCard(incomingId);
   var pt=r.progress_transfer;
   if(pt&&pt.copied>0){
     toast('已将新版加入书架，旧版已归档。新版已继承旧版阅读进度。');
   }else{
     toast('已替换旧版。旧版没有可继承的阅读进度。');
   }
-  loadUpdates();
+  doAnalyzeIncoming();
   state.offset=0;state.books=[];state.hasMore=true;
   eid('shelf').innerHTML='';
   loadBooks();
@@ -465,6 +485,39 @@ document.addEventListener('click',function(e){
   var matchedId=btn.getAttribute('data-matched-id');
   if(incomingId&&matchedId)doReplaceLibrary(incomingId,matchedId);
 });
+
+function _removeAnalysisCard(bookId){
+  var card=document.querySelector('.analysis-card[data-incoming-id="'+bookId+'"]');
+  if(card)card.remove();
+  if(analysisResult&&analysisResult.items){
+    analysisResult.items=analysisResult.items.filter(function(it){return it.incoming_book_id!==bookId})
+  }
+}
+
+async function doBatchSafe(){
+  if(!analysisResult||!analysisResult.items)return;
+  var items=analysisResult.items.filter(function(it){
+    var aa=it.available_actions||[];
+    return aa.indexOf('import_to_library')>=0||aa.indexOf('move_to_review_duplicates')>=0
+  });
+  if(items.length===0){toast('没有可处理的安全项');return}
+  if(!confirm('一键处理 '+items.length+' 项安全操作？\n\n只会处理新书和简单重复项。\n不会处理可能是新版、需人工确认等项目。'))return;
+  var imported=0,moved=0,failed=0;
+  for(var i=0;i<items.length;i++){
+    var it=items[i],aa=it.available_actions||[];
+    var r;
+    if(aa.indexOf('import_to_library')>=0){
+      r=await postApi('/api/incoming/'+it.incoming_book_id+'/import-to-library');
+      if(r&&r.ok){imported++;_removeAnalysisCard(it.incoming_book_id)}else{failed++}
+    }else if(aa.indexOf('move_to_review_duplicates')>=0){
+      r=await postApi('/api/incoming/'+it.incoming_book_id+'/move-to-review-duplicates');
+      if(r&&r.ok){moved++;_removeAnalysisCard(it.incoming_book_id)}else{failed++}
+    }
+  }
+  toast('完成：加入书架 '+imported+' 本，移入重复复核区 '+moved+' 本，失败 '+failed+' 本');
+  doAnalyzeIncoming();
+  state.offset=0;state.books=[];state.hasMore=true;eid('shelf').innerHTML='';loadBooks()
+}
 
 // ======== INIT ========
 async function init(){var h=await api('/api/health');if(h&&h.ok)eid('drawerStatus').textContent='仓库已连接';loadGroups();loadBooks()}
