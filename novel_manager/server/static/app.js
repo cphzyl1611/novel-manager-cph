@@ -11,7 +11,7 @@ function sleep(ms){return new Promise(function(r){setTimeout(r,ms)})}
 
 // ======== DRAWER ========
 function toggleDrawer(){eid('drawer').classList.toggle('open');eid('overlay').classList.toggle('open')}
-function showPage(page){state.currentPage=page;eid('updatesPage').classList.toggle('open',page==='updates');eid('uploadPage').classList.toggle('open',page==='upload');eid('opsPage').classList.toggle('open',page==='ops');eid('shelf').style.display=(page==='home')?'':'none';eid('groupTabs').style.display=(page==='home')?'':'none';if(page==='updates')loadUpdates()}
+function showPage(page){state.currentPage=page;eid('updatesPage').classList.toggle('open',page==='updates');eid('uploadPage').classList.toggle('open',page==='upload');eid('opsPage').classList.toggle('open',page==='ops');eid('healthPage').classList.toggle('open',page==='health');eid('shelf').style.display=(page==='home')?'':'none';eid('groupTabs').style.display=(page==='home')?'':'none';if(page==='updates')loadUpdates();if(page==='health')loadHealth()}
 
 // ======== READER SETTINGS (localStorage) ========
 function loadReaderSettings(){try{return JSON.parse(localStorage.getItem('readerSettings'))||{}}catch(e){return{}}}
@@ -522,3 +522,75 @@ async function doBatchSafe(){
 // ======== INIT ========
 async function init(){var h=await api('/api/health');if(h&&h.ok)eid('drawerStatus').textContent='仓库已连接';loadGroups();loadBooks()}
 init();
+
+// ======== HEALTH CENTER ========
+async function loadHealth(){
+  var sumEl=eid('healthSummary'),issEl=eid('healthIssues');
+  sumEl.innerHTML='<div class="loading"><div class="spinner"></div></div>';
+  issEl.innerHTML='';
+
+  var sum=await api('/api/health/summary');
+  var issues=await api('/api/health/issues');
+
+  if(!sum){sumEl.innerHTML='<div class="empty-state">无法获取健康状态</div>';return}
+
+  var b=sum.books||{},p=sum.pending||{},o=sum.operations||{},i=sum.integrity||{};
+  var statusClass=sum.status==='ok'?'health-ok':(sum.status==='warning'?'health-warn':'health-error');
+  var statusLabel=sum.status==='ok'?'正常':(sum.status==='warning'?'有警告':'有错误');
+
+  var h='<div class="health-status '+statusClass+'">仓库状态：'+statusLabel+'</div>';
+
+  h+='<div class="health-section"><h3>📊 书库统计</h3><div class="health-cards">';
+  h+='<div class="h-card"><span class="h-num">'+b.total+'</span><span class="h-label">小说总数</span></div>';
+  h+='<div class="h-card"><span class="h-num">'+b.library+'</span><span class="h-label">书架</span></div>';
+  h+='<div class="h-card"><span class="h-num">'+b.incoming+'</span><span class="h-label">新下载区</span></div>';
+  h+='<div class="h-card"><span class="h-num">'+(b.review_duplicates||0)+'</span><span class="h-label">重复复核区</span></div>';
+  h+='<div class="h-card"><span class="h-num">'+(b.archive||0)+'</span><span class="h-label">已归档</span></div>';
+  h+='</div></div>';
+
+  h+='<div class="health-section"><h3>⏳ 待处理项</h3><div class="health-cards">';
+  h+='<div class="h-card"><span class="h-num">'+p.incoming_unprocessed+'</span><span class="h-label">新下载待处理</span></div>';
+  h+='<div class="h-card"><span class="h-num">'+p.safe_new_books+'</span><span class="h-label">新书待入库</span></div>';
+  h+='<div class="h-card"><span class="h-num">'+(p.safe_duplicates||0)+'</span><span class="h-label">简单重复待处理</span></div>';
+  h+='<div class="h-card"><span class="h-num">'+(p.update_candidates||0)+'</span><span class="h-label">更新候选</span></div>';
+  h+='<div class="h-card"><span class="h-num">'+(p.manual_review||0)+'</span><span class="h-label">人工确认</span></div>';
+  h+='</div></div>';
+
+  h+='<div class="health-section"><h3>📋 操作安全</h3><div class="health-cards">';
+  h+='<div class="h-card"><span class="h-num">'+o.recent_total+'</span><span class="h-label">最近操作</span></div>';
+  h+='<div class="h-card"><span class="h-num">'+o.reversible+'</span><span class="h-label">可恢复</span></div>';
+  h+='<div class="h-card"><span class="h-num">'+o.restored+'</span><span class="h-label">已恢复</span></div>';
+  h+='<div class="h-card"><span class="h-num">'+o.failed+'</span><span class="h-label">失败</span></div>';
+  h+='</div></div>';
+
+  h+='<div class="health-section"><h3>🔍 一致性检查</h3><div class="health-cards">';
+  h+='<div class="h-card '+(i.missing_files>0?'h-warn':'')+'"><span class="h-num">'+i.missing_files+'</span><span class="h-label">缺失文件</span></div>';
+  h+='<div class="h-card '+(i.path_area_mismatch>0?'h-warn':'')+'"><span class="h-num">'+i.path_area_mismatch+'</span><span class="h-label">路径区域不一致</span></div>';
+  h+='<div class="h-card '+(i.stale_incoming_records>0?'h-warn':'')+'"><span class="h-num">'+i.stale_incoming_records+'</span><span class="h-label">stale incoming</span></div>';
+  h+='</div></div>';
+
+  if(sum.warnings&&sum.warnings.length>0){
+    h+='<div class="health-warnings">';
+    for(var w=0;w<sum.warnings.length;w++)h+='<div class="health-warn-item">⚠ '+esc(sum.warnings[w])+'</div>';
+    h+='</div>';
+  }
+
+  sumEl.innerHTML=h;
+
+  if(issues&&issues.items&&issues.items.length>0){
+    var ih='<div class="health-section"><h3>🚨 问题列表</h3>';
+    for(var j=0;j<issues.items.length;j++){
+      var it=issues.items[j];
+      var sev=it.severity==='error'?'issue-error':(it.severity==='warning'?'issue-warn':'issue-info');
+      ih+='<div class="issue-card '+sev+'">';
+      ih+='<div class="issue-head"><span class="issue-code">'+esc(it.code)+'</span>';
+      if(it.book_id)ih+='<span class="issue-book-id">book_id: '+it.book_id+'</span>';
+      ih+='</div>';
+      ih+='<div class="issue-file">'+esc(it.file_name||it.current_path||'')+'</div>';
+      ih+='<div class="issue-msg">'+esc(it.message)+'</div>';
+      ih+='</div>';
+    }
+    ih+='</div>';
+    issEl.innerHTML=ih;
+  }
+}

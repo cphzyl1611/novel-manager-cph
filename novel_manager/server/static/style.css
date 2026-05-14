@@ -190,3 +190,29 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
 .scan-result{padding:8px 16px;margin-top:4px;font-size:14px}
 .ops-page{display:none;padding:16px}
 .ops-page.open{display:block}
+
+/* Health center */
+.health-page{display:none;padding:16px}
+.health-page.open{display:block}
+.health-status{padding:12px 16px;border-radius:8px;font-size:15px;font-weight:600;margin-bottom:12px}
+.health-ok{background:#d4edda;color:#155724}
+.health-warn{background:#fff3cd;color:#856404}
+.health-error{background:#f8d7da;color:#721c24}
+.health-section{margin-bottom:16px}
+.health-section h3{font-size:14px;color:var(--muted);margin-bottom:8px;padding:0}
+.health-cards{display:flex;gap:8px;flex-wrap:wrap}
+.h-card{background:var(--card);border-radius:8px;padding:10px 14px;min-width:80px;text-align:center;border:1px solid var(--border)}
+.h-card.h-warn{border-color:#ffc107;background:#fffbeb}
+.h-num{font-size:18px;font-weight:700;color:var(--text)}
+.h-label{font-size:11px;color:var(--muted)}
+.health-warnings{padding:12px;background:#fff3cd;border-radius:8px;margin-bottom:12px}
+.health-warn-item{font-size:13px;color:#856404;line-height:1.6}
+.issue-card{background:var(--card);border-radius:8px;padding:10px 12px;margin-bottom:8px;border:1px solid var(--border)}
+.issue-error{border-color:#dc3545;background:#f8d7da}
+.issue-warn{border-color:#ffc107;background:#fffbeb}
+.issue-info{border-color:#17a2b8;background:#d1ecf1}
+.issue-head{display:flex;gap:8px;align-items:center;margin-bottom:4px}
+.issue-code{font-size:12px;font-weight:600;color:var(--text)}
+.issue-book-id{font-size:11px;color:var(--muted)}
+.issue-file{font-size:12px;color:var(--muted);margin-bottom:2px}
+.issue-msg{font-size:13px;line-height:1.5}
