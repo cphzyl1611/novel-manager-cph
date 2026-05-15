@@ -15,6 +15,7 @@ def list_books(
     limit: int = 60,
     offset: int = 0,
     sort: str = "updated_at",
+    include_removed: bool = False,
 ) -> dict[str, Any]:
     root = Path(repo_path).expanduser().resolve()
     conn = _open_db(root)
@@ -33,6 +34,8 @@ def list_books(
             "(b.file_name LIKE ? OR b.title_norm LIKE ? OR b.author_norm LIKE ?)"
         )
         params.extend([like, like, like])
+    if not include_removed:
+        clauses.append("(b.status IS NULL OR b.status NOT IN ('external_removed', 'ignored_missing'))")
 
     try:
         count_sql = f"SELECT COUNT(*) FROM books b WHERE {' AND '.join(clauses)}"

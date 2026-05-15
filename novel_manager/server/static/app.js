@@ -716,6 +716,12 @@ async function loadHealth(){
   h+='<div class="h-card '+(i.missing_files>0?'h-warn':'')+'"><span class="h-num">'+i.missing_files+'</span><span class="h-label">缺失文件</span></div>';
   h+='<div class="h-card '+(i.path_area_mismatch>0?'h-warn':'')+'"><span class="h-num">'+i.path_area_mismatch+'</span><span class="h-label">路径区域不一致</span></div>';
   h+='<div class="h-card '+(i.stale_incoming_records>0?'h-warn':'')+'"><span class="h-num">'+i.stale_incoming_records+'</span><span class="h-label">stale incoming</span></div>';
+  if(i.external_removed_count>0){
+    h+='<div class="h-card"><span class="h-num">'+i.external_removed_count+'</span><span class="h-label">已确认移除</span></div>';
+  }
+  if(i.ignored_missing_count>0){
+    h+='<div class="h-card"><span class="h-num">'+i.ignored_missing_count+'</span><span class="h-label">已忽略缺失</span></div>';
+  }
   h+='</div></div>';
 
   if(sum.warnings&&sum.warnings.length>0){
@@ -737,10 +743,68 @@ async function loadHealth(){
       ih+='</div>';
       ih+='<div class="issue-file">'+esc(it.file_name||it.current_path||'')+'</div>';
       ih+='<div class="issue-msg">'+esc(it.message)+'</div>';
+      // Add action buttons for missing_file
+      if(it.code==='missing_file'&&it.book_id){
+        ih+='<div class="issue-actions">';
+        ih+='<button class="btn-sm btn-action" data-action="mark-removed" data-book-id="'+it.book_id+'">标记为已移除</button>';
+        ih+='</div>';
+      }
+      // Add restore button for known_missing (external_removed)
+      if(it.code==='known_missing'&&it.book_id&&it.status==='external_removed'){
+        ih+='<div class="issue-actions">';
+        ih+='<button class="btn-sm" data-action="unmark-removed" data-book-id="'+it.book_id+'">恢复为普通记录</button>';
+        ih+='</div>';
+      }
       ih+='</div>';
     }
     ih+='</div>';
     issEl.innerHTML=ih;
+    // Bind action buttons
+    bindHealthActions();
+  }
+}
+
+function bindHealthActions(){
+  var btns=document.querySelectorAll('[data-action="mark-removed"]');
+  for(var i=0;i<btns.length;i++){
+    btns[i].onclick=function(){
+      var bookId=this.getAttribute('data-book-id');
+      confirmMarkRemoved(bookId);
+    };
+  }
+  var unbtns=document.querySelectorAll('[data-action="unmark-removed"]');
+  for(var j=0;j<unbtns.length;j++){
+    unbtns[j].onclick=function(){
+      var bookId=this.getAttribute('data-book-id');
+      unmarkRemoved(bookId);
+    };
+  }
+}
+
+function confirmMarkRemoved(bookId){
+  if(!confirm('确认标记为已移除？\n\n这不会删除任何文件。\n它只会告诉系统：这本小说已经被你手动删除，不再作为缺失文件警告。\n该书也不会继续出现在普通书架中。')){
+    return;
+  }
+  doMarkRemoved(bookId);
+}
+
+async function doMarkRemoved(bookId){
+  var result=await postApi('/api/health/books/'+bookId+'/mark-removed');
+  if(result&&result.ok){
+    toast(result.message||'已标记为已移除');
+    loadHealth();
+  }else{
+    toast(result&&result.error||'操作失败');
+  }
+}
+
+async function unmarkRemoved(bookId){
+  var result=await postApi('/api/health/books/'+bookId+'/unmark-removed');
+  if(result&&result.ok){
+    toast(result.message||'已恢复为普通记录');
+    loadHealth();
+  }else{
+    toast(result&&result.error||'操作失败');
   }
 }
 

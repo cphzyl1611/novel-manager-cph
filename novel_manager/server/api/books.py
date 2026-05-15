@@ -25,8 +25,9 @@ def books_list(
     limit: int = Query(default=60, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
     sort: str = Query(default="updated_at"),
+    include_removed: bool = Query(default=False),
 ):
-    return list_books(request.app.state.repo_path, q=q, area=area, limit=limit, offset=offset, sort=sort)
+    return list_books(request.app.state.repo_path, q=q, area=area, limit=limit, offset=offset, sort=sort, include_removed=include_removed)
 
 
 @router.get("/api/books/{book_id}")

@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from ...db import connect as db_connect
+from ...utils import now_ts
 
 
 def get_health_summary(repo_path: str) -> dict[str, Any]:
@@ -87,12 +88,23 @@ def list_health_issues(repo_path: str) -> dict[str, Any]:
 def _count_books_by_area(conn) -> dict[str, int]:
     """Count books by repo_area."""
     total = conn.execute("SELECT COUNT(*) FROM books").fetchone()[0]
-    library = conn.execute("SELECT COUNT(*) FROM books WHERE repo_area = 'library'").fetchone()[0]
-    incoming = conn.execute("SELECT COUNT(*) FROM books WHERE repo_area = 'incoming'").fetchone()[0]
-    review_duplicates = conn.execute("SELECT COUNT(*) FROM books WHERE repo_area = 'review_duplicates'").fetchone()[0]
-    archive = conn.execute("SELECT COUNT(*) FROM books WHERE repo_area = 'archive'").fetchone()[0]
-    trash = conn.execute("SELECT COUNT(*) FROM books WHERE repo_area = 'trash'").fetchone()[0]
-    return {"total": total, "library": library, "incoming": incoming, "review_duplicates": review_duplicates, "archive": archive, "trash": trash}
+    library = conn.execute("SELECT COUNT(*) FROM books WHERE repo_area = 'library' AND (status IS NULL OR status NOT IN ('external_removed', 'ignored_missing'))").fetchone()[0]
+    incoming = conn.execute("SELECT COUNT(*) FROM books WHERE repo_area = 'incoming' AND (status IS NULL OR status NOT IN ('external_removed', 'ignored_missing'))").fetchone()[0]
+    review_duplicates = conn.execute("SELECT COUNT(*) FROM books WHERE repo_area = 'review_duplicates' AND (status IS NULL OR status NOT IN ('external_removed', 'ignored_missing'))").fetchone()[0]
+    archive = conn.execute("SELECT COUNT(*) FROM books WHERE repo_area = 'archive' AND (status IS NULL OR status NOT IN ('external_removed', 'ignored_missing'))").fetchone()[0]
+    trash = conn.execute("SELECT COUNT(*) FROM books WHERE repo_area = 'trash' AND (status IS NULL OR status NOT IN ('external_removed', 'ignored_missing'))").fetchone()[0]
+    external_removed = conn.execute("SELECT COUNT(*) FROM books WHERE status = 'external_removed'").fetchone()[0]
+    ignored_missing = conn.execute("SELECT COUNT(*) FROM books WHERE status = 'ignored_missing'").fetchone()[0]
+    return {
+        "total": total,
+        "library": library,
+        "incoming": incoming,
+        "review_duplicates": review_duplicates,
+        "archive": archive,
+        "trash": trash,
+        "external_removed": external_removed,
+        "ignored_missing": ignored_missing,
+    }
 
 
 def _count_pending_incoming(conn) -> dict[str, int]:
@@ -146,11 +158,22 @@ def _check_integrity(root: Path, conn) -> dict[str, int]:
     path_area_mismatch = 0
     stale_incoming_records = 0
     dirty_file_names = 0
+    external_removed_count = 0
+    ignored_missing_count = 0
 
-    books = conn.execute("SELECT id, repo_area, current_path, file_name FROM books").fetchall()
+    books = conn.execute("SELECT id, repo_area, current_path, file_name, status FROM books").fetchall()
     for book in books:
         current_path = book["current_path"]
         repo_area = book["repo_area"]
+        status = book["status"] or ""
+
+        # Count external_removed and ignored_missing
+        if status == "external_removed":
+            external_removed_count += 1
+            continue  # Skip further checks for external_removed
+        if status == "ignored_missing":
+            ignored_missing_count += 1
+            continue  # Skip further checks for ignored_missing
 
         if current_path:
             try:
@@ -173,18 +196,37 @@ def _check_integrity(root: Path, conn) -> dict[str, int]:
         "path_area_mismatch": path_area_mismatch,
         "stale_incoming_records": stale_incoming_records,
         "dirty_file_names": dirty_file_names,
+        "external_removed_count": external_removed_count,
+        "ignored_missing_count": ignored_missing_count,
     }
 
 
 def _check_book_paths(root: Path, conn) -> list[dict]:
     """Check book path consistency."""
     items = []
-    books = conn.execute("SELECT id, repo_area, current_path, file_name FROM books").fetchall()
+    books = conn.execute("SELECT id, repo_area, current_path, file_name, status FROM books").fetchall()
 
     for book in books:
         current_path = book["current_path"]
         repo_area = book["repo_area"]
         file_name = book["file_name"] or ""
+        status = book["status"] or ""
+
+        # Skip external_removed and ignored_missing from warnings
+        if status in ("external_removed", "ignored_missing"):
+            # Show as info, not warning/error
+            if not current_path or not Path(current_path).exists():
+                items.append({
+                    "severity": "info",
+                    "code": "known_missing",
+                    "book_id": book["id"],
+                    "file_name": file_name,
+                    "repo_area": repo_area,
+                    "current_path": current_path or "",
+                    "status": status,
+                    "message": f"已确认移除：{file_name}" if status == "external_removed" else f"已忽略缺失：{file_name}",
+                })
+            continue
 
         if not current_path:
             items.append({
@@ -331,3 +373,175 @@ def _is_path_in_area(root: Path, path_str: str, area: str) -> bool:
         return False
     except Exception:
         return False
+
+
+def mark_book_external_removed(repo_path: str, book_id: int) -> dict[str, Any]:
+    """Mark a book as externally removed by user.
+
+    Args:
+        repo_path: Path to repository
+        book_id: Book ID to mark
+
+    Returns:
+        {"ok": true, "book_id": ..., "status": "external_removed", "message": ...}
+    """
+    root = Path(repo_path).expanduser().resolve()
+    conn = db_connect(root)
+
+    # Ensure web_operation_records table exists
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS web_operation_records (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            operation_type TEXT NOT NULL,
+            book_id INTEGER,
+            source_path TEXT,
+            target_path TEXT,
+            operation_time TEXT NOT NULL,
+            reversible INTEGER DEFAULT 0,
+            restored INTEGER DEFAULT 0,
+            status TEXT DEFAULT 'success',
+            details TEXT
+        )
+    """)
+
+    try:
+        # Check book exists
+        book = conn.execute(
+            "SELECT id, current_path, file_name, status FROM books WHERE id = ?",
+            (book_id,),
+        ).fetchone()
+
+        if book is None:
+            return {"ok": False, "error": "书籍不存在", "error_code": "book_not_found"}
+
+        current_status = book["status"] or ""
+        if current_status == "external_removed":
+            return {"ok": True, "book_id": book_id, "status": "external_removed", "message": "该书已被标记为已移除。"}
+
+        # Check file is actually missing
+        current_path = book["current_path"]
+        file_exists = False
+        if current_path:
+            try:
+                file_exists = Path(current_path).exists()
+            except Exception:
+                pass
+
+        # Update status
+        conn.execute(
+            "UPDATE books SET status = 'external_removed', updated_at = ? WHERE id = ?",
+            (now_ts(), book_id),
+        )
+
+        # Write operation log
+        conn.execute(
+            """INSERT INTO web_operation_records
+               (operation_type, book_id, source_path, target_path, operation_time, reversible, status, details)
+               VALUES (?, ?, ?, ?, ?, 1, 'success', ?)""",
+            (
+                "mark_external_removed",
+                book_id,
+                current_path or "",
+                "",
+                now_ts(),
+                f"标记为用户确认移除：{book['file_name'] or ''}",
+            ),
+        )
+
+        conn.commit()
+
+        return {
+            "ok": True,
+            "book_id": book_id,
+            "status": "external_removed",
+            "message": "已标记为用户确认移除，后续不再作为缺失文件警告。",
+            "file_existed": file_exists,
+        }
+    finally:
+        conn.close()
+
+
+def unmark_book_external_removed(repo_path: str, book_id: int) -> dict[str, Any]:
+    """Restore a book from external_removed to normal status.
+
+    Args:
+        repo_path: Path to repository
+        book_id: Book ID to restore
+
+    Returns:
+        {"ok": true, "book_id": ..., "status": "normal", "message": ...}
+    """
+    root = Path(repo_path).expanduser().resolve()
+    conn = db_connect(root)
+
+    # Ensure web_operation_records table exists
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS web_operation_records (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            operation_type TEXT NOT NULL,
+            book_id INTEGER,
+            source_path TEXT,
+            target_path TEXT,
+            operation_time TEXT NOT NULL,
+            reversible INTEGER DEFAULT 0,
+            restored INTEGER DEFAULT 0,
+            status TEXT DEFAULT 'success',
+            details TEXT
+        )
+    """)
+
+    try:
+        # Check book exists and is external_removed
+        book = conn.execute(
+            "SELECT id, current_path, file_name, status FROM books WHERE id = ?",
+            (book_id,),
+        ).fetchone()
+
+        if book is None:
+            return {"ok": False, "error": "书籍不存在", "error_code": "book_not_found"}
+
+        current_status = book["status"] or ""
+        if current_status != "external_removed":
+            return {"ok": True, "book_id": book_id, "status": current_status or "normal", "message": "该书未被标记为已移除。"}
+
+        # Restore to normal status
+        conn.execute(
+            "UPDATE books SET status = 'normal', updated_at = ? WHERE id = ?",
+            (now_ts(), book_id),
+        )
+
+        # Write operation log
+        conn.execute(
+            """INSERT INTO web_operation_records
+               (operation_type, book_id, source_path, target_path, operation_time, reversible, status, details)
+               VALUES (?, ?, ?, ?, ?, 0, 'success', ?)""",
+            (
+                "unmark_external_removed",
+                book_id,
+                book["current_path"] or "",
+                "",
+                now_ts(),
+                f"恢复为普通记录：{book['file_name'] or ''}",
+            ),
+        )
+
+        conn.commit()
+
+        # Check if file exists
+        current_path = book["current_path"]
+        file_exists = False
+        if current_path:
+            try:
+                file_exists = Path(current_path).exists()
+            except Exception:
+                pass
+
+        return {
+            "ok": True,
+            "book_id": book_id,
+            "status": "normal",
+            "message": "已恢复为普通记录。如果文件仍不存在，健康中心将重新显示缺失警告。",
+            "file_exists": file_exists,
+        }
+    finally:
+        conn.close()

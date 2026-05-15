@@ -106,8 +106,8 @@ def get_sync_manifest(repo_path: str) -> dict[str, Any]:
     server_device_id = row["server_device_id"] if row else ""
     server_time = row["updated_at"] if row else ""
 
-    total_books = conn.execute("SELECT COUNT(*) FROM books WHERE repo_area = 'library'").fetchone()[0]
-    total_chapters = conn.execute("SELECT COALESCE(SUM(chapter_count), 0) FROM books WHERE repo_area = 'library'").fetchone()[0]
+    total_books = conn.execute("SELECT COUNT(*) FROM books WHERE repo_area = 'library' AND (status IS NULL OR status NOT IN ('external_removed', 'ignored_missing'))").fetchone()[0]
+    total_chapters = conn.execute("SELECT COALESCE(SUM(chapter_count), 0) FROM books WHERE repo_area = 'library' AND (status IS NULL OR status NOT IN ('external_removed', 'ignored_missing'))").fetchone()[0]
 
     conn.close()
 
@@ -149,7 +149,7 @@ def get_sync_snapshot(repo_path: str, include_chapters: bool = False) -> dict[st
         """SELECT id, current_path, title_raw, title_norm, author_raw, author_norm,
                   file_size, raw_sha256, clean_sha256, chapter_count, quality_score,
                   quality_level, status, reading_status, repo_area
-           FROM books WHERE repo_area = 'library' ORDER BY title_norm"""
+           FROM books WHERE repo_area = 'library' AND (status IS NULL OR status NOT IN ('external_removed', 'ignored_missing')) ORDER BY title_norm"""
     ).fetchall()
 
     for row in rows:
@@ -182,7 +182,7 @@ def get_sync_snapshot(repo_path: str, include_chapters: bool = False) -> dict[st
                       c.start_offset, c.end_offset, c.char_count
                FROM chapters c
                JOIN books b ON c.book_id = b.id
-               WHERE b.repo_area = 'library'
+               WHERE b.repo_area = 'library' AND (b.status IS NULL OR b.status NOT IN ('external_removed', 'ignored_missing'))
                ORDER BY c.book_id, c.chapter_index"""
         ).fetchall()
 
@@ -294,7 +294,7 @@ def sync_upload_progress(
             rejected += 1
             continue
 
-        book = conn.execute("SELECT id FROM books WHERE id = ? AND repo_area = 'library'", (book_id,)).fetchone()
+        book = conn.execute("SELECT id FROM books WHERE id = ? AND repo_area = 'library' AND (status IS NULL OR status NOT IN ('external_removed', 'ignored_missing'))", (book_id,)).fetchone()
         if not book:
             rejected += 1
             continue
@@ -358,7 +358,7 @@ def sync_download_progress(repo_path: str, device_id: str) -> dict[str, Any]:
                       rp.current_chapter_index, rp.updated_at
                FROM reading_progress rp
                JOIN books b ON rp.book_id = b.id
-               WHERE b.repo_area = 'library' AND rp.device_id = ?
+               WHERE b.repo_area = 'library' AND (b.status IS NULL OR b.status NOT IN ('external_removed', 'ignored_missing')) AND rp.device_id = ?
                ORDER BY rp.updated_at DESC""",
             (device_id,),
         ).fetchall()
