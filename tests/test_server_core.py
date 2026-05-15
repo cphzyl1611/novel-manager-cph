@@ -196,8 +196,10 @@ class TestSync:
     def test_counts_ops(self):
         repo = _make_repo()
         r = get_sync_status(str(repo))
-        assert r["repo_revision"] > 0
+        # server_revision starts at 0, repo_id and device_id are generated
+        assert r["repo_revision"] >= 0
         assert "server_device_id" in r
+        assert "repo_id" in r
 
 
 class TestUpdates:

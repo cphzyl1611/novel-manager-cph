@@ -216,3 +216,47 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
 .issue-book-id{font-size:11px;color:var(--muted)}
 .issue-file{font-size:12px;color:var(--muted);margin-bottom:2px}
 .issue-msg{font-size:13px;line-height:1.5}
+
+/* ============================================================
+   PAIRING PAGE (Mobile)
+   ============================================================ */
+.pairing-page{position:fixed;inset:0;z-index:400;background:var(--bg);display:none;overflow-y:auto}
+.pairing-page.open{display:block}
+.pairing-box{max-width:360px;margin:60px auto;padding:24px;text-align:center}
+.pairing-icon{font-size:48px;margin-bottom:16px}
+.pairing-box h2{font-size:20px;margin-bottom:8px}
+.pairing-desc{font-size:14px;color:var(--muted);margin-bottom:20px}
+.pairing-error{background:#f8d7da;color:#721c24;padding:10px 14px;border-radius:8px;margin-bottom:16px;font-size:13px}
+.pairing-field{margin-bottom:12px;text-align:left}
+.pairing-field label{display:block;font-size:13px;color:var(--muted);margin-bottom:4px}
+.pairing-field input{width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:16px;background:var(--card);outline:none}
+.pairing-field input:focus{border-color:var(--accent2)}
+.pairing-btn{width:100%;padding:12px;margin-top:8px}
+
+/* ============================================================
+   PAIRING MANAGEMENT PAGE (Desktop)
+   ============================================================ */
+.pairing-mgmt-page{display:none;padding-bottom:80px}
+.pairing-mgmt-page.open{display:block}
+.pairing-code-box{background:var(--card);border-radius:12px;padding:20px;text-align:center;margin:16px 0;border:1px solid var(--border)}
+.pairing-code{font-size:36px;font-weight:700;letter-spacing:8px;color:var(--accent2);margin-bottom:8px}
+.pairing-expires{font-size:13px;color:var(--muted);margin-bottom:4px}
+.pairing-url{font-size:12px;color:var(--muted);word-break:break-all}
+.device-list{display:flex;flex-direction:column;gap:8px;margin-top:12px}
+.device-card{background:var(--card);border-radius:8px;padding:12px;border:1px solid var(--border)}
+.device-card.device-revoked{opacity:.6}
+.device-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+.device-name{font-size:14px;font-weight:600}
+.device-status{font-size:11px;padding:2px 8px;border-radius:10px;background:var(--bg);color:var(--muted)}
+.device-card.device-active .device-status{background:#d4edda;color:#155724}
+.device-card.device-revoked .device-status{background:#f8d7da;color:#721c24}
+.device-meta{font-size:12px;color:var(--muted);margin-bottom:2px}
+.device-actions{margin-top:8px}
+
+/* ============================================================
+   SETTINGS PAGE
+   ============================================================ */
+.settings-page{display:none;padding-bottom:80px}
+.settings-page.open{display:block}
+.settings-row{display:flex;justify-content:space-between;align-items:center;padding:12px 0;border-bottom:1px solid var(--border)}
+.settings-row span{font-size:14px}

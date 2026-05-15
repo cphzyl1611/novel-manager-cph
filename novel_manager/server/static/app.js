@@ -1,17 +1,77 @@
 let state={books:[],groups:[],currentGroup:'',offset:0,limit:60,total:0,loading:false,hasMore:true,searchQuery:'',currentPage:'home'};
 let readerState={currentBookId:null,currentTitle:'',barsVisible:true,lastScroll:0,saveThrottle:null,chapters:[],currentChapterIndex:0,contentLength:0};
 
+// ======== AUTH STATE ========
+var authState={
+  deviceId:'',
+  deviceToken:'',
+  isPaired:false,
+  needsPairing:false
+};
+
 // ======== UTILS ========
 function eid(id){return document.getElementById(id)}
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
-async function api(url){try{const r=await fetch(url);return r.ok?r.json():null}catch(e){return null}}
+
+function getAuthHeaders(){
+  var headers={};
+  if(authState.deviceId)headers['X-Device-ID']=authState.deviceId;
+  if(authState.deviceToken)headers['X-Device-Token']=authState.deviceToken;
+  return headers;
+}
+
+async function api(url){
+  try{
+    var r=await fetch(url,{headers:getAuthHeaders()});
+    if(r.status===401){
+      var d=await r.json();
+      if(d.error_code==='unauthorized_device'||d.error_code==='device_revoked'){
+        showPairingPage(d.error);
+        return null;
+      }
+    }
+    return r.ok?r.json():null;
+  }catch(e){return null}
+}
+
+async function postApi(url,body){
+  try{
+    var r=await fetch(url,{
+      method:'POST',
+      headers:getAuthHeaders(),
+      body:body?JSON.stringify(body):undefined
+    });
+    if(r.status===401){
+      var d=await r.json();
+      if(d.error_code==='unauthorized_device'||d.error_code==='device_revoked'){
+        showPairingPage(d.error);
+        return null;
+      }
+    }
+    return r.ok?r.json():null;
+  }catch(e){return null}
+}
+
 function toast(msg){const t=eid('toast');t.textContent=msg;t.classList.add('show');setTimeout(function(){t.classList.remove('show')},2000)}
 function readerToast(msg){const t=eid('readerToast');t.textContent=msg;t.classList.add('show');setTimeout(function(){t.classList.remove('show')},2500)}
 function sleep(ms){return new Promise(function(r){setTimeout(r,ms)})}
 
 // ======== DRAWER ========
 function toggleDrawer(){eid('drawer').classList.toggle('open');eid('overlay').classList.toggle('open')}
-function showPage(page){state.currentPage=page;eid('updatesPage').classList.toggle('open',page==='updates');eid('uploadPage').classList.toggle('open',page==='upload');eid('opsPage').classList.toggle('open',page==='ops');eid('healthPage').classList.toggle('open',page==='health');eid('shelf').style.display=(page==='home')?'':'none';eid('groupTabs').style.display=(page==='home')?'':'none';if(page==='updates')loadUpdates();if(page==='health')loadHealth()}
+function showPage(page){
+  state.currentPage=page;
+  eid('updatesPage').classList.toggle('open',page==='updates');
+  eid('uploadPage').classList.toggle('open',page==='upload');
+  eid('opsPage').classList.toggle('open',page==='ops');
+  eid('healthPage').classList.toggle('open',page==='health');
+  eid('pairingMgmtPage').classList.toggle('open',page==='pairing');
+  eid('settingsPage').classList.remove('open');
+  eid('shelf').style.display=(page==='home')?'':'none';
+  eid('groupTabs').style.display=(page==='home')?'':'none';
+  if(page==='updates')loadUpdates();
+  if(page==='health')loadHealth();
+  if(page==='pairing')loadPairedDevices();
+}
 
 // ======== READER SETTINGS (localStorage) ========
 function loadReaderSettings(){try{return JSON.parse(localStorage.getItem('readerSettings'))||{}}catch(e){return{}}}
@@ -250,11 +310,11 @@ window.addEventListener('beforeunload',function(){saveReadingProgress()});
 // ======== UPDATES ========
 var analysisResult=null;
 
-async function postApi(url){try{var r=await fetch(url,{method:'POST'});return r.ok?r.json():null}catch(e){return null}}
+async function postApiSimple(url){try{var r=await fetch(url,{method:'POST',headers:getAuthHeaders()});return r.ok?r.json():null}catch(e){return null}}
 
 async function doScanIncoming(){
   var btn=eid('btnScanIncoming');btn.disabled=true;btn.textContent='扫描中...';
-  var d=await postApi('/api/tasks/scan-incoming');
+  var d=await postApiSimple('/api/tasks/scan-incoming');
   btn.disabled=false;btn.textContent='🔍 扫描新下载区';
   if(!d){toast('扫描失败，请查看服务端日志');return}
   toast('扫描完成: 发现 '+d.found+' 个, 已扫描 '+d.scanned+' 个')
@@ -262,7 +322,7 @@ async function doScanIncoming(){
 
 async function doAnalyzeIncoming(){
   var btn=eid('btnAnalyzeIncoming');btn.disabled=true;btn.textContent='检测中...';
-  var d=await postApi('/api/tasks/analyze-incoming');
+  var d=await postApiSimple('/api/tasks/analyze-incoming');
   btn.disabled=false;btn.textContent='📊 检测新下载小说';
   if(!d){toast('检测失败，请查看服务端日志');return}
   analysisResult=d;renderAnalysis()
@@ -308,7 +368,7 @@ function renderAnalysis(){
 
 async function doImport(bookId){
   if(!confirm('加入书架？\n\n将把这本新书从新下载区加入小说库。\n不会覆盖已有文件，也不会修改 TXT 内容。'))return;
-  var r=await postApi('/api/incoming/'+bookId+'/import-to-library');
+  var r=await postApiSimple('/api/incoming/'+bookId+'/import-to-library');
   if(!r||!r.ok){
     if(r&&r.error_code==='incoming_item_stale'){toast('该项目已经被处理，正在刷新检测结果。');doAnalyzeIncoming();return}
     toast(r&&r.error||'操作失败');return
@@ -320,7 +380,7 @@ async function doImport(bookId){
 }
 async function doMoveReview(bookId){
   if(!confirm('移入重复复核区？\n\n将只把新下载区的这份文件移入重复复核区，\n不会删除任何文件，也不会影响小说库中已有版本。'))return;
-  var r=await postApi('/api/incoming/'+bookId+'/move-to-review-duplicates');
+  var r=await postApiSimple('/api/incoming/'+bookId+'/move-to-review-duplicates');
   if(!r||!r.ok){
     if(r&&r.error_code==='incoming_item_stale'){toast('该项目已经被处理，正在刷新检测结果。');doAnalyzeIncoming();return}
     toast(r&&r.error||'操作失败');return
@@ -449,7 +509,7 @@ async function doRestore(opId,isReplace){
     msg=['确认恢复？','','这会把该小说从当前区域移回新下载区。','不会删除文件，也不会覆盖已有文件。','如果新下载区已有同名文件，会自动改名。'].join('\n');
   }
   if(!confirm(msg))return;
-  var r=await postApi('/api/operations/'+opId+'/restore');
+  var r=await postApiSimple('/api/operations/'+opId+'/restore');
   if(!r||!r.ok){toast(r&&r.error||'恢复失败');return}
   toast(isReplace?'已恢复替换操作':'已恢复到新下载区');loadOps('')
 }
@@ -458,7 +518,7 @@ async function doRestore(opId,isReplace){
 async function doReplaceLibrary(incomingId,matchedId){
   var msg=['确认替换旧版？','','这会执行以下操作：','','1. 将书架中的旧版移动到 archive/replaced；','2. 将新下载区中的新版加入书架；','3. 不会删除任何文件；','4. 不会覆盖已有文件；','5. 可在"操作记录"中恢复。'].join('\n');
   if(!confirm(msg))return;
-  var r=await postApi('/api/incoming/'+incomingId+'/replace-library/'+matchedId);
+  var r=await postApiSimple('/api/incoming/'+incomingId+'/replace-library/'+matchedId);
   if(!r||!r.ok){
     if(r&&r.error_code==='incoming_item_stale'){toast('该项目已经被处理，正在刷新检测结果。');doAnalyzeIncoming();return}
     if(r&&r.error_code==='matched_not_in_library'){toast('匹配的小说已不在书架中，请刷新检测结果。');doAnalyzeIncoming();return}
@@ -507,10 +567,10 @@ async function doBatchSafe(){
     var it=items[i],aa=it.available_actions||[];
     var r;
     if(aa.indexOf('import_to_library')>=0){
-      r=await postApi('/api/incoming/'+it.incoming_book_id+'/import-to-library');
+      r=await postApiSimple('/api/incoming/'+it.incoming_book_id+'/import-to-library');
       if(r&&r.ok){imported++;_removeAnalysisCard(it.incoming_book_id)}else{failed++}
     }else if(aa.indexOf('move_to_review_duplicates')>=0){
-      r=await postApi('/api/incoming/'+it.incoming_book_id+'/move-to-review-duplicates');
+      r=await postApiSimple('/api/incoming/'+it.incoming_book_id+'/move-to-review-duplicates');
       if(r&&r.ok){moved++;_removeAnalysisCard(it.incoming_book_id)}else{failed++}
     }
   }
@@ -520,7 +580,19 @@ async function doBatchSafe(){
 }
 
 // ======== INIT ========
-async function init(){var h=await api('/api/health');if(h&&h.ok)eid('drawerStatus').textContent='仓库已连接';loadGroups();loadBooks()}
+async function init(){
+  loadAuthState();
+  var h=await api('/api/health');
+  if(h&&h.ok){
+    if(!authState.needsPairing){
+      var manifest=await checkSyncManifest();
+      updateSyncStatusUI(manifest);
+    }
+  }
+  if(!authState.needsPairing){
+    loadGroups();loadBooks()
+  }
+}
 init();
 
 // ======== HEALTH CENTER ========
@@ -594,3 +666,345 @@ async function loadHealth(){
     issEl.innerHTML=ih;
   }
 }
+
+// ======== SYNC CLIENT ========
+var syncState={
+  deviceId:'',
+  repoId:'',
+  lastSyncedRevision:0,
+  syncEnabled:false
+};
+
+function getOrCreateDeviceId(){
+  var id=localStorage.getItem('novelhub_device_id');
+  if(!id){
+    id='mobile-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,8);
+    localStorage.setItem('novelhub_device_id',id);
+  }
+  return id;
+}
+
+function loadSyncState(){
+  syncState.deviceId=getOrCreateDeviceId();
+  syncState.repoId=localStorage.getItem('novelhub_repo_id')||'';
+  syncState.lastSyncedRevision=parseInt(localStorage.getItem('novelhub_last_revision')||'0',10);
+}
+
+function saveSyncState(){
+  if(syncState.repoId)localStorage.setItem('novelhub_repo_id',syncState.repoId);
+  localStorage.setItem('novelhub_last_revision',String(syncState.lastSyncedRevision));
+}
+
+async function checkSyncManifest(){
+  try{
+    var manifest=await api('/api/sync/manifest');
+    if(!manifest)return null;
+    if(syncState.repoId&&syncState.repoId!==manifest.repo_id){
+      // Repo changed, reset local cache
+      localStorage.removeItem('novelhub_last_revision');
+      syncState.lastSyncedRevision=0;
+    }
+    syncState.repoId=manifest.repo_id;
+    saveSyncState();
+    return manifest;
+  }catch(e){
+    return null;
+  }
+}
+
+async function syncPullChanges(){
+  var manifest=await checkSyncManifest();
+  if(!manifest)return{ok:false,error:'无法获取同步清单'};
+
+  if(manifest.server_revision<=syncState.lastSyncedRevision){
+    return{ok:true,changes:0,message:'已是最新'};
+  }
+
+  var changes=await api('/api/sync/changes?since='+syncState.lastSyncedRevision);
+  if(!changes)return{ok:false,error:'无法获取变更'};
+
+  // Apply changes to local cache (placeholder - actual implementation would use IndexedDB)
+  // For now, just refresh the book list
+  if(changes.changes&&changes.changes.length>0){
+    syncState.lastSyncedRevision=manifest.server_revision;
+    saveSyncState();
+    state.offset=0;state.books=[];state.hasMore=true;
+    eid('shelf').innerHTML='';
+    await loadBooks();
+    return{ok:true,changes:changes.changes.length,message:'已同步 '+changes.changes.length+' 条变更'};
+  }
+
+  return{ok:true,changes:0,message:'无变更'};
+}
+
+async function syncPushProgress(){
+  if(!syncState.deviceId)return{ok:false,error:'无设备ID'};
+
+  // Collect pending progress from localStorage (placeholder)
+  // In a full implementation, this would read from IndexedDB
+  var pendingProgress=[];
+  var progressKey='novelhub_pending_progress';
+  try{
+    var stored=localStorage.getItem(progressKey);
+    if(stored)pendingProgress=JSON.parse(stored);
+  }catch(e){}
+
+  if(pendingProgress.length===0)return{ok:true,uploaded:0,message:'无待上传进度'};
+
+  var r=await fetch('/api/sync/progress',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({device_id:syncState.deviceId,progress:pendingProgress})
+  });
+
+  if(!r.ok)return{ok:false,error:'上传失败'};
+
+  var d=await r.json();
+  if(d.ok&&d.accepted>0){
+    localStorage.removeItem(progressKey);
+    return{ok:true,uploaded:d.accepted,message:'已上传 '+d.accepted+' 条阅读进度'};
+  }
+
+  return{ok:true,uploaded:0,message:'无新进度上传'};
+}
+
+async function doFullSync(){
+  toast('开始同步...');
+
+  // Pull changes first
+  var pullResult=await syncPullChanges();
+
+  // Then push progress
+  var pushResult=await syncPushProgress();
+
+  var messages=[];
+  if(pullResult.message)messages.push(pullResult.message);
+  if(pushResult.message)messages.push(pushResult.message);
+
+  toast(messages.join(' | '));
+}
+
+function updateSyncStatusUI(manifest){
+  var el=eid('drawerStatus');
+  if(!el)return;
+  if(manifest){
+    var rev=manifest.server_revision||0;
+    el.textContent='已连接 r'+rev;
+    el.title='repo_id: '+manifest.repo_id+'\nrevision: '+rev;
+  }else{
+    el.textContent='未连接';
+  }
+}
+
+// Initialize sync on load
+loadSyncState();
+
+// ======== PAIRING ========
+function loadAuthState(){
+  authState.deviceId=localStorage.getItem('novelhub_device_id')||'';
+  authState.deviceToken=localStorage.getItem('novelhub_device_token')||'';
+  authState.isPaired=authState.deviceId&&authState.deviceToken;
+}
+
+function saveAuthState(){
+  if(authState.deviceId)localStorage.setItem('novelhub_device_id',authState.deviceId);
+  if(authState.deviceToken)localStorage.setItem('novelhub_device_token',authState.deviceToken);
+}
+
+function clearAuthState(){
+  localStorage.removeItem('novelhub_device_token');
+  authState.deviceToken='';
+  authState.isPaired=false;
+}
+
+function showPairingPage(errorMsg){
+  authState.needsPairing=true;
+  var pp=eid('pairingPage');
+  if(!pp)return;
+  pp.classList.add('open');
+  eid('shelf').style.display='none';
+  eid('groupTabs').style.display='none';
+  eid('pairingError').textContent=errorMsg||'该设备尚未配对，请先在电脑端完成配对。';
+  eid('pairingCodeInput').value='';
+  eid('deviceNameInput').value='';
+}
+
+function hidePairingPage(){
+  authState.needsPairing=false;
+  var pp=eid('pairingPage');
+  if(pp)pp.classList.remove('open');
+  eid('shelf').style.display='';
+  eid('groupTabs').style.display='';
+}
+
+async function doPairing(){
+  var code=eid('pairingCodeInput').value.trim();
+  var name=eid('deviceNameInput').value.trim();
+  if(!code){
+    toast('请输入配对码');
+    return;
+  }
+  if(!authState.deviceId){
+    authState.deviceId='mobile-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,8);
+  }
+  var btn=eid('pairingBtn');
+  btn.disabled=true;
+  btn.textContent='配对中...';
+  try{
+    var r=await fetch('/api/pairing/confirm',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({pairing_code:code,device_id:authState.deviceId,device_name:name||'Mobile Device'})
+    });
+    var d=await r.json();
+    btn.disabled=false;
+    btn.textContent='完成配对';
+    if(!r.ok||!d.ok){
+      eid('pairingError').textContent=d.error||'配对失败';
+      return;
+    }
+    authState.deviceToken=d.device_token;
+    authState.isPaired=true;
+    saveAuthState();
+    toast('配对成功');
+    hidePairingPage();
+    init();
+  }catch(e){
+    btn.disabled=false;
+    btn.textContent='完成配对';
+    eid('pairingError').textContent='网络错误，请重试';
+  }
+}
+
+function checkPairUrl(){
+  var hash=window.location.hash||'';
+  if(hash.indexOf('pair=')>=0){
+    var code=hash.split('pair=')[1].split('&')[0];
+    if(code){
+      eid('pairingCodeInput').value=code;
+      showPairingPage('');
+    }
+  }
+}
+
+// ======== SETTINGS PAGE ========
+function showSettingsPage(){
+  eid('settingsPage').classList.add('open');
+  eid('shelf').style.display='none';
+  eid('groupTabs').style.display='none';
+  updateSettingsDisplay();
+}
+
+function hideSettingsPage(){
+  eid('settingsPage').classList.remove('open');
+  eid('shelf').style.display='';
+  eid('groupTabs').style.display='';
+}
+
+function updateSettingsDisplay(){
+  var info=eid('deviceInfo');
+  if(!info)return;
+  var h='<div class="settings-row"><span>设备 ID</span><span style="color:var(--muted)">'+esc(authState.deviceId||'未生成')+'</span></div>';
+  h+='<div class="settings-row"><span>配对状态</span><span style="color:'+((authState.isPaired)?'var(--accent)':'var(--error)')+'">'+((authState.isPaired)?'已配对':'未配对')+'</span></div>';
+  if(authState.isPaired){
+    h+='<div class="settings-row"><button class="btn-cancel" onclick="clearPairing()">清除配对</button></div>';
+  }
+  info.innerHTML=h;
+}
+
+function clearPairing(){
+  if(!confirm('确认清除配对？\n\n清除后需要重新配对才能访问书库。'))return;
+  clearAuthState();
+  showPairingPage('配对已清除，请重新配对。');
+  hideSettingsPage();
+}
+
+// ======== DESKTOP PAIRING CODE GENERATION ========
+async function createPairingCode(){
+  var btn=eid('createPairingBtn');
+  if(btn){
+    btn.disabled=true;
+    btn.textContent='生成中...';
+  }
+  try{
+    var r=await fetch('/api/pairing/create',{method:'POST'});
+    var d=await r.json();
+    if(btn){
+      btn.disabled=false;
+      btn.textContent='生成配对码';
+    }
+    if(!r.ok||!d.pairing_code){
+      toast('生成配对码失败');
+      return;
+    }
+    var display=eid('pairingCodeDisplay');
+    if(display){
+      display.innerHTML='<div class="pairing-code-box"><div class="pairing-code">'+esc(d.pairing_code)+'</div><div class="pairing-expires">有效期 5 分钟</div><div class="pairing-url">'+esc(d.pair_url||'')+'</div></div>';
+    }
+    toast('配对码: '+d.pairing_code);
+  }catch(e){
+    if(btn){
+      btn.disabled=false;
+      btn.textContent='生成配对码';
+    }
+    toast('网络错误');
+  }
+}
+
+async function loadPairedDevices(){
+  var list=eid('pairedDevicesList');
+  if(!list)return;
+  list.innerHTML='<div class="loading"><div class="spinner"></div></div>';
+  try{
+    var r=await fetch('/api/pairing/devices');
+    var d=await r.json();
+    if(!r.ok||!d.ok){
+      list.innerHTML='<div class="empty-state">无法获取设备列表</div>';
+      return;
+    }
+    var devices=d.devices||[];
+    if(devices.length===0){
+      list.innerHTML='<div class="empty-state">暂无已配对设备</div>';
+      return;
+    }
+    var h='<div class="device-list">';
+    for(var i=0;i<devices.length;i++){
+      var dev=devices[i];
+      var status=dev.revoked?'已撤销':'已配对';
+      var statusClass=dev.revoked?'device-revoked':'device-active';
+      h+='<div class="device-card '+statusClass+'">';
+      h+='<div class="device-head"><span class="device-name">'+esc(dev.device_name||dev.device_id)+'</span><span class="device-status">'+status+'</span></div>';
+      h+='<div class="device-meta">ID: '+esc(dev.device_id)+'</div>';
+      h+='<div class="device-meta">创建: '+esc(dev.created_at||'')+'</div>';
+      if(dev.last_seen_at)h+='<div class="device-meta">最后访问: '+esc(dev.last_seen_at)+'</div>';
+      if(!dev.revoked){
+        h+='<div class="device-actions"><button class="btn-sm btn-cancel" onclick="revokeDevice(\''+esc(dev.device_id)+'\')">撤销授权</button></div>';
+      }
+      h+='</div>';
+    }
+    h+='</div>';
+    list.innerHTML=h;
+  }catch(e){
+    list.innerHTML='<div class="empty-state">网络错误</div>';
+  }
+}
+
+async function revokeDevice(deviceId){
+  if(!confirm('确认撤销该设备的授权？\n\n撤销后该设备将无法继续访问书库。'))return;
+  try{
+    var r=await fetch('/api/pairing/devices/'+encodeURIComponent(deviceId)+'/revoke',{method:'POST'});
+    var d=await r.json();
+    if(!r.ok||!d.ok){
+      toast(d.error||'撤销失败');
+      return;
+    }
+    toast('已撤销授权');
+    loadPairedDevices();
+  }catch(e){
+    toast('网络错误');
+  }
+}
+
+// Initialize auth state on load
+loadAuthState();
+checkPairUrl();

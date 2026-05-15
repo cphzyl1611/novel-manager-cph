@@ -815,7 +815,127 @@ python server.py --repo "D:/NovelRepo_Test" --host 0.0.0.0    # 开放局域网
 - 上传后可立即扫描新下载区或进入更新检测
 
 详见 [docs/dual_end_novel_app_architecture.md](docs/dual_end_novel_app_architecture.md)。
-#   n o v e l - m a n a g e r  
- 
-#   n o v e l - m a n a g e r - c p h  
+
+## 移动端同步协议 v1
+
+NovelHub 支持手机端 PWA 与电脑端主仓库同步。同步协议 v1 提供以下能力：
+
+### 同步 API
+
+| API | 说明 |
+|-----|------|
+| `/api/sync/manifest` | 获取仓库元数据（repo_id、server_revision、设备ID） |
+| `/api/sync/snapshot` | 获取完整书库快照（可选包含章节） |
+| `/api/sync/changes?since=N` | 获取自 revision N 以来的增量变更 |
+| `/api/sync/progress` (POST) | 上传手机端阅读进度 |
+| `/api/sync/progress?device_id=X` (GET) | 下载指定设备的阅读进度 |
+
+### 同步机制
+
+- **server_revision**：每次数据变更后递增，用于增量同步
+- **repo_id**：仓库唯一标识（UUID[:8]），用于识别仓库切换
+- **device_id**：设备唯一标识，存储在 localStorage
+- **last_synced_revision**：上次同步的 revision，存储在 localStorage
+
+### PWA 基础能力
+
+- **manifest.webmanifest**：PWA 配置文件，支持安装到手机桌面
+- **service-worker.js**：离线缓存静态资源和 API 响应
+- **localStorage 缓存**：device_id、repo_id、last_synced_revision、阅读设置
+
+### 同步流程
+
+1. 首次打开：调用 `/api/sync/manifest` 获取 repo_id 和 server_revision
+2. 检测仓库切换：如果 localStorage 中的 repo_id 与服务器不同，重置本地缓存
+3. 增量同步：调用 `/api/sync/changes?since=last_synced_revision` 获取变更
+4. 上传进度：POST `/api/sync/progress` 上传本地阅读进度
+5. 更新状态：更新 localStorage 中的 last_synced_revision
+
+### 设计原则
+
+- **电脑端是唯一权威源**：所有书库数据以电脑端 SQLite 为准
+- **手机端是缓存**：手机端数据会被电脑端覆盖
+- **阅读进度可上传**：手机端阅读进度可同步到电脑端，但电脑端仍是权威
+- **不破坏现有功能**：同步协议不影响 Web 书架、阅读器、CLI、PyQt GUI
+
+## 手机端配对与访问控制
+
+当电脑端以 `--host 0.0.0.0` 启动后，同一局域网内的其他设备可以访问小说库。为了保护隐私和安全，只有经过配对授权的手机设备才能访问同步 API 和敏感数据 API。
+
+### 为什么需要配对
+
+- 防止未授权设备访问小说库
+- 保护阅读进度和个人数据
+- 控制哪些设备可以上传文件或执行操作
+- 支持设备撤销，随时断开可疑设备
+
+### 配对流程
+
+**电脑端操作：**
+
+1. 打开 Web 界面，点击侧边栏"设备配对"
+2. 点击"生成配对码"
+3. 显示 6 位数字配对码（有效期 5 分钟）
+
+**手机端操作：**
+
+1. 手机浏览器访问 `http://<电脑IP>:8765`
+2. 如果未配对，会显示"设备配对"页面
+3. 输入电脑端显示的配对码
+4. 可选输入设备名称（如"我的手机"）
+5. 点击"完成配对"
+6. 配对成功后自动跳转到书架
+
+### 配对 API
+
+| API | 说明 |
+|-----|------|
+| `POST /api/pairing/create` | 创建配对码（电脑端调用） |
+| `POST /api/pairing/confirm` | 确认配对（手机端调用） |
+| `GET /api/pairing/devices` | 查看已配对设备列表 |
+| `POST /api/pairing/devices/{id}/revoke` | 撤销设备授权 |
+
+### Token 保存和校验
+
+- **Token 生成**：使用 `secrets.token_urlsafe(32)` 生成 32 字节安全随机 token
+- **数据库存储**：只保存 SHA256 hash，不保存明文 token
+- **手机端保存**：明文 token 保存在 localStorage（`novelhub_device_token`）
+- **请求携带**：每次 API 请求通过 `X-Device-Token` 或 `Authorization: Bearer` 携带 token
+- **校验流程**：服务器对比 token hash 与数据库记录，验证设备身份
+
+### 本机免授权
+
+来自 `127.0.0.1`、`localhost`、`::1` 的请求可以免授权访问所有 API。这是为了方便：
+
+- 电脑端本机开发和调试
+- 电脑端浏览器正常使用
+- CLI 和 PyQt GUI 正常工作
+
+### 受保护的 API
+
+以下 API 对非本机请求需要授权：
+
+- `/api/sync/*` - 同步相关
+- `/api/books/{id}/content` - 小说内容
+- `/api/books/upload` - 上传新书
+- `/api/tasks/*` - 扫描和检测任务
+- `/api/incoming/*` - 新下载区操作
+- `/api/operations/*` - 操作记录
+- `/api/health/*` - 健康检查
+
+### 撤销设备
+
+在电脑端"设备配对"页面，点击设备卡片的"撤销授权"按钮：
+
+- 撤销后该设备无法继续访问书库
+- 设备需要重新配对才能访问
+- 撤销操作不会删除设备记录，只标记为 revoked
+
+### 局域网访问注意事项
+
+- 配对码只在生成后 5 分钟内有效
+- 配对码只能使用一次
+- 不要在公共网络分享配对码
+- 定期检查已配对设备列表
+- 发现可疑设备立即撤销
  
