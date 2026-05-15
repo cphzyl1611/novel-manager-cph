@@ -931,6 +931,43 @@ NovelHub 支持手机端 PWA 与电脑端主仓库同步。同步协议 v1 提�
 - 设备需要重新配对才能访问
 - 撤销操作不会删除设备记录，只标记为 revoked
 
+## Web/PWA 全流程验收
+
+### 何时运行 smoke test
+
+每次修改 Web/PWA 代码后，启动服务并运行 smoke 脚本确认核心功能未回归。
+
+### 启动服务
+
+```bash
+python server.py --repo "D:/NovelRepo_Test" --host 127.0.0.1 --port 8765
+```
+
+### 运行 smoke 脚本
+
+```bash
+python scripts/smoke_web_pwa.py --base-url http://127.0.0.1:8765 --repo "D:/NovelRepo_Test"
+```
+
+脚本只执行 GET API 调用和静态文件检查，不会删除或移动任何文件。
+
+报告输出到 `reports/smoke/smoke_web_pwa_YYYYMMDD_HHMMSS.md` 和 `.json`。
+
+### 手动验收清单
+
+详细的手动验收清单见 `docs/验收/Web_PWA_全流程验收清单.md`。
+
+### 清理 Service Worker 缓存
+
+1. DevTools → Application → Service Workers → Unregister
+2. DevTools → Application → Storage → Clear site data
+3. Ctrl+F5 强制刷新
+
+### 解读报告
+
+- 全部 ✅：核心功能通过，可以部署
+- 有 ❌：查看失败项详情，修复后重新运行
+
 ### 局域网访问注意事项
 
 - 配对码只在生成后 5 分钟内有效
