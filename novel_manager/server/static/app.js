@@ -343,6 +343,9 @@ async function openBook(id,title){
   // close settings panel when opening a book
   eid('settingsPanel').classList.remove('open');
   eid('settingsOverlay').classList.remove('open');
+  // hide shelf pagination dock
+  var pgDock=eid('shelfPagination');
+  if(pgDock){pgDock.classList.add('hidden');pgDock.innerHTML='';}
   // title + encoding + warning
   eid('readerTitle').textContent=title;
   eid('readerContent').textContent='加载中...';
