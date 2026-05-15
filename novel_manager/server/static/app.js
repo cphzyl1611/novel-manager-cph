@@ -1,7 +1,7 @@
-// NovelHub app.js shelfpaging2
-console.log('[NovelHub] app.js shelfpaging2 loaded');
+// NovelHub app.js shelfpaging3
+console.log('[NovelHub] app.js shelfpaging3 loaded');
 
-let state={books:[],groups:[],currentGroup:'',page:1,pageSize:40,total:0,totalPages:0,loading:false,searchQuery:'',currentPage:'shelf'};
+let state={books:[],groups:[],currentGroup:'',page:1,pageSize:35,total:0,totalPages:0,loading:false,searchQuery:'',currentPage:'shelf'};
 let readerState={currentBookId:null,currentTitle:'',barsVisible:true,lastScroll:0,saveThrottle:null,chapters:[],currentChapterIndex:0,contentLength:0};
 
 // ======== AUTH STATE ========
@@ -94,6 +94,7 @@ function initNavigation(){
       var action=actionBtn.dataset.action;
       if(action==='page-prev'&&state.page>1)goToPage(state.page-1);
       if(action==='page-next'&&state.page<state.totalPages)goToPage(state.page+1);
+      if(action==='page-jump')doPageJump();
       return;
     }
 
@@ -109,6 +110,14 @@ function initNavigation(){
     }
   });
   console.log('[NovelHub] navigation initialized');
+
+  // Enter key to jump page
+  document.addEventListener('keydown',function(e){
+    if(e.target&&e.target.id==='pageJumpInput'&&e.key==='Enter'){
+      e.preventDefault();
+      doPageJump();
+    }
+  });
 }
 
 function showPage(pageName){
@@ -328,7 +337,18 @@ function renderPagination(){
   h+='<button class="page-btn" data-action="page-prev"'+(state.page<=1?' disabled':'')+'>上一页</button>';
   h+='<span class="page-indicator">'+state.page+' / '+state.totalPages+'</span>';
   h+='<button class="page-btn" data-action="page-next"'+(state.page>=state.totalPages?' disabled':'')+'>下一页</button>';
+  h+='<span class="page-jump">跳转到 <input id="pageJumpInput" class="page-jump-input" type="number" min="1" max="'+state.totalPages+'" value="'+state.page+'"> 页 <button class="page-btn page-jump-btn" data-action="page-jump">跳转</button></span>';
   el.innerHTML=h;
+}
+
+function doPageJump(){
+  var input=eid('pageJumpInput');
+  if(!input)return;
+  var raw=parseInt(input.value,10);
+  if(Number.isNaN(raw)){toast('请输入有效页码');return}
+  var target=Math.max(1,Math.min(state.totalPages,raw));
+  if(target===state.page)return;
+  goToPage(target);
 }
 
 function goToPage(p){
