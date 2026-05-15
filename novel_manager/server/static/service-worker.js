@@ -1,7 +1,7 @@
-// NovelHub Service Worker shelfpaging1
+// NovelHub Service Worker shelfpaging2
 // Provides offline caching for PWA functionality
 
-const CACHE_NAME = 'novelhub-shelfpaging1';
+const CACHE_NAME = 'novelhub-shelfpaging2';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
