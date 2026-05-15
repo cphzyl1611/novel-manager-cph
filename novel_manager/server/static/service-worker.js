@@ -1,7 +1,7 @@
-// NovelHub Service Worker v1
+// NovelHub Service Worker menufix2
 // Provides offline caching for PWA functionality
 
-const CACHE_NAME = 'novelhub-v1';
+const CACHE_NAME = 'novelhub-menufix2';
 const STATIC_ASSETS = [
   '/',
   '/index.html',

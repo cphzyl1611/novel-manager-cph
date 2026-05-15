@@ -9,27 +9,27 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icon-192.png">
 <title>NovelHub</title>
-<link rel="stylesheet" href="style.css?v=pairingv1">
+<link rel="stylesheet" href="style.css?v=menufix2">
 </head>
 <body>
 <div class="topbar">
-  <button class="menu-btn" onclick="toggleDrawer()">☰</button>
+  <button class="menu-btn" data-toggle="drawer">☰</button>
   <div class="app-title">📚 <span>NovelHub</span></div>
   <div class="search-wrap">
     <span class="search-icon">🔍</span>
     <input type="text" id="searchInput" placeholder="搜索书名、作者..." oninput="onSearch()">
   </div>
 </div>
-<div class="overlay" id="overlay" onclick="toggleDrawer()"></div>
+<div class="overlay" id="overlay"></div>
 <nav class="drawer" id="drawer">
   <h3>菜单</h3>
-  <a href="#" class="active" onclick="showPage('home');toggleDrawer()">🏠 首页</a>
-  <a href="#" onclick="showPage('updates');toggleDrawer()">🔄 小说更新</a>
-  <a href="#" onclick="showPage('upload');toggleDrawer()">📤 上传新书</a>
-  <a href="#" onclick="showPage('ops');toggleDrawer()">📋 操作记录</a>
-  <a href="#" onclick="showPage('health');toggleDrawer()">🏥 健康中心</a>
-  <a href="#" onclick="showPage('pairing');toggleDrawer()">🔗 设备配对</a>
-  <a href="#" onclick="showSettingsPage();toggleDrawer()">⚙️ 设置</a>
+  <a href="#" class="nav-item active" data-page="shelf">🏠 首页</a>
+  <a href="#" class="nav-item" data-page="updates">🔄 小说更新</a>
+  <a href="#" class="nav-item" data-page="upload">📤 上传新书</a>
+  <a href="#" class="nav-item" data-page="operations">📋 操作记录</a>
+  <a href="#" class="nav-item" data-page="health">🏥 健康中心</a>
+  <a href="#" class="nav-item" data-page="pairing">🔗 设备配对</a>
+  <a href="#" class="nav-item" data-page="settings">⚙️ 设置</a>
   <div style="margin-top:auto;font-size:11px;color:var(--muted)"><div id="drawerStatus">未连接</div></div>
 </nav>
 <div class="group-tabs" id="groupTabs"></div>
@@ -201,7 +201,7 @@
     </div>
   </div>
 </div>
-<script src="app.js?v=pairingv1"></script>
+<script src="app.js?v=menufix2"></script>
 <script>
 // Register service worker for PWA
 if ('serviceWorker' in navigator) {

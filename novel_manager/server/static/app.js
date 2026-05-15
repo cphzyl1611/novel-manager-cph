@@ -1,4 +1,7 @@
-let state={books:[],groups:[],currentGroup:'',offset:0,limit:60,total:0,loading:false,hasMore:true,searchQuery:'',currentPage:'home'};
+// NovelHub app.js menufix2
+console.log('[NovelHub] app.js menufix2 loaded');
+
+let state={books:[],groups:[],currentGroup:'',offset:0,limit:60,total:0,loading:false,hasMore:true,searchQuery:'',currentPage:'shelf'};
 let readerState={currentBookId:null,currentTitle:'',barsVisible:true,lastScroll:0,saveThrottle:null,chapters:[],currentChapterIndex:0,contentLength:0};
 
 // ======== AUTH STATE ========
@@ -7,6 +10,17 @@ var authState={
   deviceToken:'',
   isPaired:false,
   needsPairing:false
+};
+
+// ======== PAGE REGISTRY ========
+const PAGES={
+  shelf:{id:'shelfPage',onShow:null},
+  upload:{id:'uploadPage',onShow:null},
+  updates:{id:'updatesPage',onShow:function(){loadUpdates()}},
+  operations:{id:'opsPage',onShow:function(){loadOps('')}},
+  health:{id:'healthPage',onShow:loadHealth},
+  settings:{id:'settingsPage',onShow:updateSettingsDisplay},
+  pairing:{id:'pairingMgmtPage',onShow:loadPairedDevices}
 };
 
 // ======== UTILS ========
@@ -52,25 +66,104 @@ async function postApi(url,body){
   }catch(e){return null}
 }
 
-function toast(msg){const t=eid('toast');t.textContent=msg;t.classList.add('show');setTimeout(function(){t.classList.remove('show')},2000)}
-function readerToast(msg){const t=eid('readerToast');t.textContent=msg;t.classList.add('show');setTimeout(function(){t.classList.remove('show')},2500)}
+function toast(msg){const t=eid('toast');if(t){t.textContent=msg;t.classList.add('show');setTimeout(function(){t.classList.remove('show')},2000)}}
+function readerToast(msg){const t=eid('readerToast');if(t){t.textContent=msg;t.classList.add('show');setTimeout(function(){t.classList.remove('show')},2500)}}
 function sleep(ms){return new Promise(function(r){setTimeout(r,ms)})}
 
+// ======== NAVIGATION ========
+function initNavigation(){
+  document.addEventListener('click',function(e){
+    // Handle overlay click to close drawer
+    if(e.target.id==='overlay'){
+      toggleDrawer();
+      return;
+    }
+
+    // Handle data-toggle="drawer" (menu button)
+    var toggleBtn=e.target.closest('[data-toggle="drawer"]');
+    if(toggleBtn){
+      e.preventDefault();
+      toggleDrawer();
+      return;
+    }
+
+    // Handle data-page (navigation items)
+    var nav=e.target.closest('[data-page]');
+    if(!nav)return;
+    e.preventDefault();
+    var page=nav.dataset.page;
+    showPage(page);
+    var drawer=eid('drawer');
+    if(drawer&&drawer.classList.contains('open')){
+      toggleDrawer();
+    }
+  });
+  console.log('[NovelHub] navigation initialized');
+}
+
+function showPage(pageName){
+  console.log('[NovelHub] showPage',pageName);
+
+  // Handle legacy 'home' -> 'shelf'
+  if(pageName==='home')pageName='shelf';
+
+  var cfg=PAGES[pageName];
+  if(!cfg){
+    console.warn('[NovelHub] unknown page:',pageName);
+    pageName='shelf';
+    cfg=PAGES[pageName];
+  }
+
+  state.currentPage=pageName;
+
+  // Hide all pages first
+  Object.entries(PAGES).forEach(function(entry){
+    var name=entry[0],page=entry[1];
+    var el=eid(page.id);
+    if(!el){
+      console.warn('[NovelHub] missing page element:',page.id);
+      return;
+    }
+    el.classList.remove('open');
+    el.classList.remove('active');
+    el.style.display='none';
+  });
+
+  // Show selected page
+  var activeEl=eid(cfg.id);
+  if(activeEl){
+    activeEl.classList.add('open');
+    activeEl.style.display='';
+  }
+
+  // Toggle shelf and groupTabs visibility
+  var shelf=eid('shelf');
+  var groupTabs=eid('groupTabs');
+  if(shelf)shelf.style.display=(pageName==='shelf')?'':'none';
+  if(groupTabs)groupTabs.style.display=(pageName==='shelf')?'':'none';
+
+  // Update nav active state
+  document.querySelectorAll('[data-page]').forEach(function(btn){
+    btn.classList.toggle('active',btn.dataset.page===pageName||btn.dataset.page==='home'&&pageName==='shelf');
+  });
+
+  // Call onShow if defined
+  if(cfg&&typeof cfg.onShow==='function'){
+    try{
+      cfg.onShow();
+    }catch(e){
+      console.error('[NovelHub] page onShow failed:',pageName,e);
+      toast('页面加载失败');
+    }
+  }
+}
+
 // ======== DRAWER ========
-function toggleDrawer(){eid('drawer').classList.toggle('open');eid('overlay').classList.toggle('open')}
-function showPage(page){
-  state.currentPage=page;
-  eid('updatesPage').classList.toggle('open',page==='updates');
-  eid('uploadPage').classList.toggle('open',page==='upload');
-  eid('opsPage').classList.toggle('open',page==='ops');
-  eid('healthPage').classList.toggle('open',page==='health');
-  eid('pairingMgmtPage').classList.toggle('open',page==='pairing');
-  eid('settingsPage').classList.remove('open');
-  eid('shelf').style.display=(page==='home')?'':'none';
-  eid('groupTabs').style.display=(page==='home')?'':'none';
-  if(page==='updates')loadUpdates();
-  if(page==='health')loadHealth();
-  if(page==='pairing')loadPairedDevices();
+function toggleDrawer(){
+  var drawer=eid('drawer');
+  var overlay=eid('overlay');
+  if(drawer)drawer.classList.toggle('open');
+  if(overlay)overlay.classList.toggle('open');
 }
 
 // ======== READER SETTINGS (localStorage) ========
@@ -201,7 +294,7 @@ function renderShelf(){
   }
   if(state.loading)h+='<div class="loading"><div class="spinner"></div></div>';s.innerHTML=h
 }
-window.addEventListener('scroll',function(){if(state.currentPage!=='home')return;if(window.scrollY+window.innerHeight>document.body.offsetHeight-300)loadBooks()});
+window.addEventListener('scroll',function(){if(state.currentPage!=='shelf')return;if(window.scrollY+window.innerHeight>document.body.offsetHeight-300)loadBooks()});
 
 // ======== READER CORE ========
 async function openBook(id,title){
@@ -454,7 +547,7 @@ async function doUpload(){
 
 async function scanIncoming(){
   toast('正在扫描新下载区...');
-  var d=await api('/api/tasks/scan-incoming',{method:'POST'});
+  var d=await postApiSimple('/api/tasks/scan-incoming');
   if(!d){toast('扫描失败');return}
   var el=eid('scanResult');
   el.innerHTML='<div class="upload-success">🔍 新下载区发现 '+d.found+' 个 TXT 文件</div>';
@@ -579,22 +672,6 @@ async function doBatchSafe(){
   state.offset=0;state.books=[];state.hasMore=true;eid('shelf').innerHTML='';loadBooks()
 }
 
-// ======== INIT ========
-async function init(){
-  loadAuthState();
-  var h=await api('/api/health');
-  if(h&&h.ok){
-    if(!authState.needsPairing){
-      var manifest=await checkSyncManifest();
-      updateSyncStatusUI(manifest);
-    }
-  }
-  if(!authState.needsPairing){
-    loadGroups();loadBooks()
-  }
-}
-init();
-
 // ======== HEALTH CENTER ========
 async function loadHealth(){
   var sumEl=eid('healthSummary'),issEl=eid('healthIssues');
@@ -708,6 +785,7 @@ async function checkSyncManifest(){
     saveSyncState();
     return manifest;
   }catch(e){
+    console.error('[NovelHub] checkSyncManifest failed:',e);
     return null;
   }
 }
@@ -796,9 +874,6 @@ function updateSyncStatusUI(manifest){
   }
 }
 
-// Initialize sync on load
-loadSyncState();
-
 // ======== PAIRING ========
 function loadAuthState(){
   authState.deviceId=localStorage.getItem('novelhub_device_id')||'';
@@ -822,19 +897,30 @@ function showPairingPage(errorMsg){
   var pp=eid('pairingPage');
   if(!pp)return;
   pp.classList.add('open');
-  eid('shelf').style.display='none';
-  eid('groupTabs').style.display='none';
-  eid('pairingError').textContent=errorMsg||'该设备尚未配对，请先在电脑端完成配对。';
-  eid('pairingCodeInput').value='';
-  eid('deviceNameInput').value='';
+  pp.style.display='';
+  var shelf=eid('shelf');
+  var groupTabs=eid('groupTabs');
+  if(shelf)shelf.style.display='none';
+  if(groupTabs)groupTabs.style.display='none';
+  var errEl=eid('pairingError');
+  if(errEl)errEl.textContent=errorMsg||'该设备尚未配对，请先在电脑端完成配对。';
+  var codeInput=eid('pairingCodeInput');
+  var nameInput=eid('deviceNameInput');
+  if(codeInput)codeInput.value='';
+  if(nameInput)nameInput.value='';
 }
 
 function hidePairingPage(){
   authState.needsPairing=false;
   var pp=eid('pairingPage');
-  if(pp)pp.classList.remove('open');
-  eid('shelf').style.display='';
-  eid('groupTabs').style.display='';
+  if(pp){
+    pp.classList.remove('open');
+    pp.style.display='none';
+  }
+  var shelf=eid('shelf');
+  var groupTabs=eid('groupTabs');
+  if(shelf)shelf.style.display='';
+  if(groupTabs)groupTabs.style.display='';
 }
 
 async function doPairing(){
@@ -860,7 +946,8 @@ async function doPairing(){
     btn.disabled=false;
     btn.textContent='完成配对';
     if(!r.ok||!d.ok){
-      eid('pairingError').textContent=d.error||'配对失败';
+      var errEl=eid('pairingError');
+      if(errEl)errEl.textContent=d.error||'配对失败';
       return;
     }
     authState.deviceToken=d.device_token;
@@ -872,7 +959,8 @@ async function doPairing(){
   }catch(e){
     btn.disabled=false;
     btn.textContent='完成配对';
-    eid('pairingError').textContent='网络错误，请重试';
+    var errEl=eid('pairingError');
+    if(errEl)errEl.textContent='网络错误，请重试';
   }
 }
 
@@ -881,7 +969,8 @@ function checkPairUrl(){
   if(hash.indexOf('pair=')>=0){
     var code=hash.split('pair=')[1].split('&')[0];
     if(code){
-      eid('pairingCodeInput').value=code;
+      var input=eid('pairingCodeInput');
+      if(input)input.value=code;
       showPairingPage('');
     }
   }
@@ -889,16 +978,28 @@ function checkPairUrl(){
 
 // ======== SETTINGS PAGE ========
 function showSettingsPage(){
-  eid('settingsPage').classList.add('open');
-  eid('shelf').style.display='none';
-  eid('groupTabs').style.display='none';
+  var sp=eid('settingsPage');
+  if(sp){
+    sp.classList.add('open');
+    sp.style.display='';
+  }
+  var shelf=eid('shelf');
+  var groupTabs=eid('groupTabs');
+  if(shelf)shelf.style.display='none';
+  if(groupTabs)groupTabs.style.display='none';
   updateSettingsDisplay();
 }
 
 function hideSettingsPage(){
-  eid('settingsPage').classList.remove('open');
-  eid('shelf').style.display='';
-  eid('groupTabs').style.display='';
+  var sp=eid('settingsPage');
+  if(sp){
+    sp.classList.remove('open');
+    sp.style.display='none';
+  }
+  var shelf=eid('shelf');
+  var groupTabs=eid('groupTabs');
+  if(shelf)shelf.style.display='';
+  if(groupTabs)groupTabs.style.display='';
 }
 
 function updateSettingsDisplay(){
@@ -1005,6 +1106,54 @@ async function revokeDevice(deviceId){
   }
 }
 
+// ======== INIT ========
+async function init(){
+  console.log('[NovelHub] init start');
+
+  // Initialize navigation first (must work even if API fails)
+  initNavigation();
+
+  // Initialize sync state
+  loadSyncState();
+
+  // Load auth state
+  loadAuthState();
+
+  // Check pairing URL
+  checkPairUrl();
+
+  // Try to connect to server
+  try{
+    var h=await api('/api/health');
+    if(h&&h.ok){
+      if(!authState.needsPairing){
+        try{
+          var manifest=await checkSyncManifest();
+          updateSyncStatusUI(manifest);
+        }catch(e){
+          console.error('[NovelHub] sync manifest check failed:',e);
+        }
+      }
+    }
+  }catch(e){
+    console.error('[NovelHub] health check failed:',e);
+  }
+
+  // Load data if not in pairing mode
+  if(!authState.needsPairing){
+    try{
+      loadGroups();
+      loadBooks();
+    }catch(e){
+      console.error('[NovelHub] load data failed:',e);
+    }
+  }
+
+  console.log('[NovelHub] init complete');
+}
+
 // Initialize auth state on load
 loadAuthState();
-checkPairUrl();
+
+// Start init
+init();
