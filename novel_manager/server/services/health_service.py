@@ -18,7 +18,7 @@ def get_health_summary(repo_path: str) -> dict[str, Any]:
             "books": {"total": 0, "library": 0, "incoming": 0, "review_duplicates": 0, "archive": 0, "trash": 0},
             "pending": {"incoming_unprocessed": 0, "safe_new_books": 0, "safe_duplicates": 0, "update_candidates": 0, "manual_review": 0},
             "operations": {"recent_total": 0, "reversible": 0, "restored": 0, "failed": 0},
-            "integrity": {"missing_files": 0, "path_area_mismatch": 0, "stale_incoming_records": 0, "dirty_file_names": 0},
+            "integrity": {"missing_files": 0, "ignored_missing_files_count": 0, "path_area_mismatch": 0, "stale_incoming_records": 0, "dirty_file_names": 0},
             "status": "error",
             "warnings": ["无法连接数据库"],
             "errors": [],
@@ -33,8 +33,8 @@ def get_health_summary(repo_path: str) -> dict[str, Any]:
         warnings = []
         errors = []
 
-        if integrity_stats["missing_files"] > 0:
-            warnings.append(f"发现 {integrity_stats['missing_files']} 个缺失文件")
+        # Note: missing_files is no longer treated as a warning
+        # Most missing files are user-initiated deletions, which is normal behavior
         if integrity_stats["path_area_mismatch"] > 0:
             warnings.append(f"发现 {integrity_stats['path_area_mismatch']} 个路径区域不一致")
         if integrity_stats["stale_incoming_records"] > 0:
@@ -43,8 +43,7 @@ def get_health_summary(repo_path: str) -> dict[str, Any]:
         status = "ok"
         if warnings:
             status = "warning"
-        if integrity_stats["missing_files"] > 0 or integrity_stats["path_area_mismatch"] > 0:
-            status = "warning"
+        # missing_files no longer affects status
 
         return {
             "repo_path": str(root),
@@ -154,7 +153,9 @@ def _count_operations(conn) -> dict[str, int]:
 
 def _check_integrity(root: Path, conn) -> dict[str, int]:
     """Check repository integrity."""
-    missing_files = 0
+    # missing_files is now tracked as ignored_missing_files_count
+    # since most missing files are user-initiated deletions
+    ignored_missing_files_count = 0
     path_area_mismatch = 0
     stale_incoming_records = 0
     dirty_file_names = 0
@@ -179,20 +180,22 @@ def _check_integrity(root: Path, conn) -> dict[str, int]:
             try:
                 p = Path(current_path)
                 if not p.exists():
-                    missing_files += 1
+                    # File is missing, but we treat this as normal (user deleted it)
+                    ignored_missing_files_count += 1
                 else:
                     expected_area = _get_expected_area(root, p)
                     if expected_area and repo_area != expected_area:
                         path_area_mismatch += 1
             except Exception:
-                missing_files += 1
+                ignored_missing_files_count += 1
 
         if repo_area == "incoming":
             if not current_path or not _is_path_in_area(root, current_path, "incoming"):
                 stale_incoming_records += 1
 
     return {
-        "missing_files": missing_files,
+        "missing_files": 0,  # Always 0, no longer treated as error
+        "ignored_missing_files_count": ignored_missing_files_count,
         "path_area_mismatch": path_area_mismatch,
         "stale_incoming_records": stale_incoming_records,
         "dirty_file_names": dirty_file_names,
@@ -212,20 +215,9 @@ def _check_book_paths(root: Path, conn) -> list[dict]:
         file_name = book["file_name"] or ""
         status = book["status"] or ""
 
-        # Skip external_removed and ignored_missing from warnings
+        # Skip external_removed and ignored_missing from issues
+        # These are user-acknowledged states, not health issues
         if status in ("external_removed", "ignored_missing"):
-            # Show as info, not warning/error
-            if not current_path or not Path(current_path).exists():
-                items.append({
-                    "severity": "info",
-                    "code": "known_missing",
-                    "book_id": book["id"],
-                    "file_name": file_name,
-                    "repo_area": repo_area,
-                    "current_path": current_path or "",
-                    "status": status,
-                    "message": f"已确认移除：{file_name}" if status == "external_removed" else f"已忽略缺失：{file_name}",
-                })
             continue
 
         if not current_path:
@@ -243,15 +235,9 @@ def _check_book_paths(root: Path, conn) -> list[dict]:
         try:
             p = Path(current_path)
             if not p.exists():
-                items.append({
-                    "severity": "error",
-                    "code": "missing_file",
-                    "book_id": book["id"],
-                    "file_name": file_name,
-                    "repo_area": repo_area,
-                    "current_path": current_path,
-                    "message": f"文件不存在：{current_path}",
-                })
+                # File is missing, but we no longer report this as an error
+                # Most missing files are user-initiated deletions, which is normal
+                pass  # Skip missing_file issues
             else:
                 expected_area = _get_expected_area(root, p)
                 if expected_area and repo_area != expected_area:

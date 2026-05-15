@@ -117,7 +117,7 @@ class TestHealthSummary:
         assert result["books"]["incoming"] == 1
         assert result["books"]["review_duplicates"] == 1
 
-    def test_summary_detects_missing_file(self) -> None:
+    def test_summary_ignores_missing_file(self) -> None:
         repo = _make_test_repo()
 
         db_path = repo / "db" / "novel_repo.sqlite"
@@ -130,8 +130,12 @@ class TestHealthSummary:
         conn.close()
 
         result = get_health_summary(str(repo))
-        assert result["integrity"]["missing_files"] == 1
-        assert result["status"] == "warning"
+        # missing_files is always 0 (no longer a warning)
+        assert result["integrity"]["missing_files"] == 0
+        # ignored_missing_files_count tracks actual missing files
+        assert result["integrity"]["ignored_missing_files_count"] == 1
+        # Status should be ok — missing files don't affect it
+        assert result["status"] == "ok"
 
     def test_summary_detects_path_area_mismatch(self) -> None:
         repo = _make_test_repo()
@@ -171,19 +175,18 @@ class TestHealthSummary:
         assert result["integrity"]["missing_files"] == 0
         assert result["integrity"]["path_area_mismatch"] == 0
 
-    def test_summary_warning_on_issue(self) -> None:
+    def test_summary_warning_on_path_mismatch(self) -> None:
         repo = _make_test_repo()
+        _insert_book(repo, "incoming", "book.txt", 1, "Mismatch")
 
         db_path = repo / "db" / "novel_repo.sqlite"
         conn = sqlite3.connect(str(db_path))
-        conn.execute(
-            "INSERT INTO books (id, title_raw, file_name, current_path, repo_area, quality_score, chapter_count, char_count_clean, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'normal', '2024-01-01', '2024-01-01')",
-            (1, "Missing", "missing.txt", str(repo / "library" / "missing.txt"), "library", 80.0, 100, 10000),
-        )
+        conn.execute("UPDATE books SET repo_area = 'library' WHERE id = 1")
         conn.commit()
         conn.close()
 
         result = get_health_summary(str(repo))
+        # path_area_mismatch still produces warning
         assert result["status"] == "warning"
         assert len(result["warnings"]) >= 1
 
@@ -194,7 +197,7 @@ class TestHealthIssues:
         result = list_health_issues(str(repo))
         assert result["items"] == []
 
-    def test_issues_detects_missing_file(self) -> None:
+    def test_issues_ignores_missing_file(self) -> None:
         repo = _make_test_repo()
 
         db_path = repo / "db" / "novel_repo.sqlite"
@@ -207,11 +210,9 @@ class TestHealthIssues:
         conn.close()
 
         result = list_health_issues(str(repo))
-
+        # missing_file is no longer returned — user deletions are normal
         missing = [i for i in result["items"] if i["code"] == "missing_file"]
-        assert len(missing) >= 1
-        assert missing[0]["severity"] == "error"
-        assert missing[0]["book_id"] == 1
+        assert len(missing) == 0
 
     def test_issues_detects_path_area_mismatch(self) -> None:
         repo = _make_test_repo()

@@ -203,10 +203,12 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
 .health-cards{display:flex;gap:8px;flex-wrap:wrap}
 .h-card{background:var(--card);border-radius:8px;padding:10px 14px;min-width:80px;text-align:center;border:1px solid var(--border)}
 .h-card.h-warn{border-color:#ffc107;background:#fffbeb}
+.h-card.h-info{border-color:#b8daff;background:#e8f4fd}
 .h-num{font-size:18px;font-weight:700;color:var(--text)}
 .h-label{font-size:11px;color:var(--muted)}
 .health-warnings{padding:12px;background:#fff3cd;border-radius:8px;margin-bottom:12px}
 .health-warn-item{font-size:13px;color:#856404;line-height:1.6}
+.health-info-box{padding:12px;background:#e8f4fd;border-radius:8px;margin-bottom:12px;font-size:13px;color:#0c5460;line-height:1.6}
 .issue-card{background:var(--card);border-radius:8px;padding:10px 12px;margin-bottom:8px;border:1px solid var(--border)}
 .issue-error{border-color:#dc3545;background:#f8d7da}
 .issue-warn{border-color:#ffc107;background:#fffbeb}

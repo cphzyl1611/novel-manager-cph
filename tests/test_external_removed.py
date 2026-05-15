@@ -84,29 +84,34 @@ def _make_repo_with_missing_file() -> Path:
     return repo
 
 
-def test_missing_file_detected_in_health_issues():
-    """Test that missing file is detected as error in health issues."""
+def test_missing_file_not_in_health_issues():
+    """Test that missing file is NOT reported as a health issue by default.
+    Most missing files are user-initiated deletions, which is normal."""
     repo = _make_repo_with_missing_file()
     try:
         issues = list_health_issues(str(repo))
         items = issues.get("items", [])
 
-        # Should have missing_file error
+        # Should NOT have missing_file error
         missing_items = [i for i in items if i["code"] == "missing_file"]
-        assert len(missing_items) >= 1
-        assert missing_items[0]["severity"] == "error"
+        assert len(missing_items) == 0
     finally:
         import shutil
         shutil.rmtree(repo)
 
 
-def test_missing_file_counted_in_summary():
-    """Test that missing file is counted in health summary."""
+def test_missing_file_counted_as_ignored():
+    """Test that missing file is counted as ignored in health summary."""
     repo = _make_repo_with_missing_file()
     try:
         summary = get_health_summary(str(repo))
         integrity = summary.get("integrity", {})
-        assert integrity.get("missing_files", 0) >= 1
+        # missing_files is always 0 (no longer a warning)
+        assert integrity.get("missing_files", 0) == 0
+        # ignored_missing_files_count tracks actual missing files
+        assert integrity.get("ignored_missing_files_count", 0) >= 1
+        # Status should still be ok
+        assert summary.get("status") == "ok"
     finally:
         import shutil
         shutil.rmtree(repo)
@@ -135,8 +140,9 @@ def test_external_removed_not_counted_as_missing():
         shutil.rmtree(repo)
 
 
-def test_external_removed_shown_as_info_not_error():
-    """Test that external_removed books show as info, not error."""
+def test_external_removed_not_in_issues():
+    """Test that external_removed books are NOT shown in health issues.
+    Both missing_file and known_missing are hidden by default."""
     repo = _make_repo_with_missing_file()
     try:
         conn = db_connect(repo)
@@ -149,11 +155,9 @@ def test_external_removed_shown_as_info_not_error():
         issues = list_health_issues(str(repo))
         items = issues.get("items", [])
 
-        # Should have known_missing info, not missing_file error
+        # Should NOT have known_missing
         known_items = [i for i in items if i["code"] == "known_missing"]
-        assert len(known_items) >= 1
-        assert known_items[0]["severity"] == "info"
-        assert known_items[0]["status"] == "external_removed"
+        assert len(known_items) == 0
 
         # Should NOT have missing_file error
         missing_items = [i for i in items if i["code"] == "missing_file"]
@@ -300,8 +304,9 @@ def test_unmark_removed_restores_status():
         shutil.rmtree(repo)
 
 
-def test_unmark_removed_file_still_missing_shows_warning():
-    """Test that after unmark, missing file warning reappears."""
+def test_unmark_removed_file_still_missing_no_warning():
+    """Test that after unmark, missing file still does NOT show as health issue.
+    Missing files are always ignored by default regardless of status."""
     repo = _make_repo_with_missing_file()
     try:
         conn = db_connect(repo)
@@ -313,19 +318,24 @@ def test_unmark_removed_file_still_missing_shows_warning():
         # Mark first
         mark_book_external_removed(str(repo), book_id)
 
-        # Verify no missing_file error
-        issues_before = list_health_issues(str(repo))
-        missing_before = [i for i in issues_before["items"] if i["code"] == "missing_file"]
-        assert len(missing_before) == 0
+        # Verify no missing_file error and external_removed_count is 1
+        summary_before = get_health_summary(str(repo))
+        assert summary_before["integrity"]["external_removed_count"] == 1
 
         # Unmark
         unmark_book_external_removed(str(repo), book_id)
 
-        # Now missing_file should reappear
+        # After unmark, still no missing_file issue
         issues_after = list_health_issues(str(repo))
         missing_after = [i for i in issues_after["items"] if i["code"] == "missing_file"]
-        assert len(missing_after) >= 1
-        assert missing_after[0]["severity"] == "error"
+        assert len(missing_after) == 0
+
+        # ignored_missing_files_count should be back to tracking it
+        summary_after = get_health_summary(str(repo))
+        assert summary_after["integrity"]["missing_files"] == 0
+        assert summary_after["integrity"]["ignored_missing_files_count"] >= 1
+        # Status should be ok
+        assert summary_after["status"] == "ok"
     finally:
         import shutil
         shutil.rmtree(repo)
