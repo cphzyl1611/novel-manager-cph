@@ -1,5 +1,5 @@
-// NovelHub app.js shelfpaging1
-console.log('[NovelHub] app.js shelfpaging1 loaded');
+// NovelHub app.js shelfpaging2
+console.log('[NovelHub] app.js shelfpaging2 loaded');
 
 let state={books:[],groups:[],currentGroup:'',page:1,pageSize:40,total:0,totalPages:0,loading:false,searchQuery:'',currentPage:'shelf'};
 let readerState={currentBookId:null,currentTitle:'',barsVisible:true,lastScroll:0,saveThrottle:null,chapters:[],currentChapterIndex:0,contentLength:0};
@@ -87,6 +87,16 @@ function initNavigation(){
       return;
     }
 
+    // Handle data-action buttons (pagination, etc.)
+    var actionBtn=e.target.closest('[data-action]');
+    if(actionBtn){
+      e.preventDefault();
+      var action=actionBtn.dataset.action;
+      if(action==='page-prev'&&state.page>1)goToPage(state.page-1);
+      if(action==='page-next'&&state.page<state.totalPages)goToPage(state.page+1);
+      return;
+    }
+
     // Handle data-page (navigation items)
     var nav=e.target.closest('[data-page]');
     if(!nav)return;
@@ -141,6 +151,13 @@ function showPage(pageName){
   var groupTabs=eid('groupTabs');
   if(shelf)shelf.style.display=(pageName==='shelf')?'':'none';
   if(groupTabs)groupTabs.style.display=(pageName==='shelf')?'':'none';
+
+  // Toggle shelf pagination dock
+  var pgDock=eid('shelfPagination');
+  if(pgDock){
+    if(pageName==='shelf')pgDock.classList.remove('hidden');
+    else{pgDock.classList.add('hidden');pgDock.innerHTML='';}
+  }
 
   // Update nav active state
   document.querySelectorAll('[data-page]').forEach(function(btn){
@@ -296,17 +313,22 @@ function renderShelf(){
       +'</div>'
   }
   if(state.loading)h+='<div class="loading"><div class="spinner"></div></div>';
-  // Pagination controls
-  if(state.totalPages>1){
-    h+='<div class="pagination-bar">';
-    h+='<span class="pagination-info">共 '+state.total+' 本，每页 '+state.pageSize+' 本</span>';
-    h+='<div class="pagination-btns">';
-    if(state.page>1)h+='<button class="page-btn" onclick="goToPage('+(state.page-1)+')">上一页</button>';
-    h+='<span class="page-indicator">'+state.page+' / '+state.totalPages+'</span>';
-    if(state.page<state.totalPages)h+='<button class="page-btn" onclick="goToPage('+(state.page+1)+')">下一页</button>';
-    h+='</div></div>';
+  s.innerHTML=h;
+  renderPagination();
+}
+
+function renderPagination(){
+  var el=eid('shelfPagination');
+  if(!el)return;
+  if(state.currentPage!=='shelf'||state.totalPages<=1){
+    el.classList.add('hidden');el.innerHTML='';return;
   }
-  s.innerHTML=h
+  el.classList.remove('hidden');
+  var h='<span class="pagination-info">共 '+state.total+' 本，每页 '+state.pageSize+' 本</span>';
+  h+='<button class="page-btn" data-action="page-prev"'+(state.page<=1?' disabled':'')+'>上一页</button>';
+  h+='<span class="page-indicator">'+state.page+' / '+state.totalPages+'</span>';
+  h+='<button class="page-btn" data-action="page-next"'+(state.page>=state.totalPages?' disabled':'')+'>下一页</button>';
+  el.innerHTML=h;
 }
 
 function goToPage(p){

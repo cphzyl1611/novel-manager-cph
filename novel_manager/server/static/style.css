@@ -29,7 +29,7 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
 .group-tab.add{background:var(--bg);border-style:dashed;color:var(--muted)}
 
 /* Bookshelf */
-.shelf{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;padding:0 16px 80px}
+.shelf{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;padding:0 16px 88px}
 @media(min-width:600px){.shelf{grid-template-columns:repeat(auto-fill,minmax(170px,1fr))}}
 @media(min-width:900px){.shelf{grid-template-columns:repeat(auto-fill,minmax(180px,1fr))}}
 .book-card{background:var(--card);border-radius:var(--radius);padding:14px;box-shadow:var(--shadow);cursor:pointer;transition:transform .15s,box-shadow .15s;display:flex;flex-direction:column;gap:6px;border:1px solid var(--border);position:relative}
@@ -266,10 +266,14 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
 .settings-row{display:flex;justify-content:space-between;align-items:center;padding:12px 0;border-bottom:1px solid var(--border)}
 .settings-row span{font-size:14px}
 
-/* Pagination */
-.pagination-bar{display:flex;flex-direction:column;align-items:center;gap:8px;padding:16px;margin:0 16px}
+/* Pagination fixed dock */
+.pagination-dock{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:80;display:flex;align-items:center;gap:8px;padding:8px 14px;border:1px solid var(--border);border-radius:999px;background:rgba(255,255,255,.92);box-shadow:0 8px 24px rgba(0,0,0,.12);backdrop-filter:blur(8px)}
+.pagination-dock.hidden{display:none}
 .pagination-info{font-size:12px;color:var(--muted)}
-.pagination-btns{display:flex;align-items:center;gap:12px}
-.page-btn{padding:8px 16px;border-radius:8px;border:1px solid var(--border);background:var(--card);font-size:14px;cursor:pointer;color:var(--text)}
+.pagination-dock .pagination-info{display:none}
+.page-btn{padding:8px 16px;border-radius:8px;border:1px solid var(--border);background:var(--card);font-size:14px;cursor:pointer;color:var(--text);min-width:72px;text-align:center}
 .page-btn:hover{border-color:var(--accent2)}
-.page-indicator{font-size:14px;color:var(--muted)}
+.page-btn:disabled{opacity:.45;cursor:not-allowed}
+.page-indicator{font-size:14px;color:var(--muted);font-weight:600;min-width:48px;text-align:center}
+@media(min-width:600px){.pagination-dock .pagination-info{display:inline}}
+@media(max-width:600px){.pagination-dock{left:12px;right:12px;bottom:calc(12px + env(safe-area-inset-bottom,0px));transform:none;justify-content:center}}
