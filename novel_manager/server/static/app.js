@@ -1,7 +1,8 @@
-// NovelHub app.js progressfix1
-console.log('[NovelHub] app.js progressfix1 loaded');
+// NovelHub app.js offlinecache1
+console.log('[NovelHub] app.js offlinecache1 loaded');
 
 let state={books:[],groups:[],currentGroup:'',page:1,pageSize:35,total:0,totalPages:0,loading:false,searchQuery:'',currentPage:'shelf'};
+let offlineState={mode:'online',lastSyncTime:null,cachedBookCount:0,pendingUploadCount:0};
 let readerState={currentBookId:null,currentTitle:'',barsVisible:true,lastScroll:0,saveThrottle:null,chapters:[],currentChapterIndex:0,contentLength:0};
 
 // ======== AUTH STATE ========
@@ -69,6 +70,99 @@ async function postApi(url,body){
 function toast(msg){const t=eid('toast');if(t){t.textContent=msg;t.classList.add('show');setTimeout(function(){t.classList.remove('show')},2000)}}
 function readerToast(msg){const t=eid('readerToast');if(t){t.textContent=msg;t.classList.add('show');setTimeout(function(){t.classList.remove('show')},2500)}}
 function sleep(ms){return new Promise(function(r){setTimeout(r,ms)})}
+
+// ======== INDEXEDDB OFFLINE CACHE ========
+var DB_NAME='NovelHubCache',DB_VERSION=1;
+var _dbPromise=null;
+
+function openDB(){
+  if(_dbPromise)return _dbPromise;
+  _dbPromise=new Promise(function(resolve,reject){
+    try{
+      var req=indexedDB.open(DB_NAME,DB_VERSION);
+      req.onupgradeneeded=function(e){
+        var db=e.target.result;
+        if(!db.objectStoreNames.contains('meta'))db.createObjectStore('meta',{keyPath:'key'});
+        if(!db.objectStoreNames.contains('books'))db.createObjectStore('books',{keyPath:'book_id'});
+        if(!db.objectStoreNames.contains('contents'))db.createObjectStore('contents',{keyPath:'book_id'});
+        if(!db.objectStoreNames.contains('chapters'))db.createObjectStore('chapters',{keyPath:'book_id'});
+        if(!db.objectStoreNames.contains('progress'))db.createObjectStore('progress',{keyPath:'book_id'});
+        if(!db.objectStoreNames.contains('pending_progress'))db.createObjectStore('pending_progress',{keyPath:'book_id'});
+      };
+      req.onsuccess=function(e){resolve(e.target.result)};
+      req.onerror=function(e){console.error('[OfflineCache] openDB failed',e.target.error);_dbPromise=null;resolve(null)};
+    }catch(e){console.error('[OfflineCache] IDB not available',e);_dbPromise=null;resolve(null)}
+  });
+  return _dbPromise;
+}
+
+function idbGet(storeName,key){return openDB().then(function(db){if(!db)return null;return new Promise(function(resolve){try{var tx=db.transaction(storeName,'readonly');var store=tx.objectStore(storeName);var req=store.get(key);req.onsuccess=function(){resolve(req.result)};req.onerror=function(){resolve(null)}}catch(e){resolve(null)}})})}
+function idbPut(storeName,value){return openDB().then(function(db){if(!db)return;return new Promise(function(resolve){try{var tx=db.transaction(storeName,'readwrite');var store=tx.objectStore(storeName);store.put(value);tx.oncomplete=function(){resolve(true)};tx.onerror=function(){console.error('[OfflineCache] put failed',storeName,tx.error);resolve(false)}}catch(e){console.error('[OfflineCache] put error',storeName,e);resolve(false)}})})}
+function idbDelete(storeName,key){return openDB().then(function(db){if(!db)return;return new Promise(function(resolve){try{var tx=db.transaction(storeName,'readwrite');var store=tx.objectStore(storeName);store.delete(key);tx.oncomplete=function(){resolve(true)};tx.onerror=function(){resolve(false)}}catch(e){resolve(false)}})})}
+function idbClear(storeName){return openDB().then(function(db){if(!db)return;return new Promise(function(resolve){try{var tx=db.transaction(storeName,'readwrite');var store=tx.objectStore(storeName);store.clear();tx.oncomplete=function(){resolve(true)};tx.onerror=function(){resolve(false)}}catch(e){resolve(false)}})})}
+function idbGetAll(storeName){return openDB().then(function(db){if(!db)return[];return new Promise(function(resolve){try{var tx=db.transaction(storeName,'readonly');var store=tx.objectStore(storeName);var req=store.getAll();req.onsuccess=function(){resolve(req.result||[])};req.onerror=function(){resolve([])}}catch(e){resolve([])}})})}
+
+function idbPutMeta(key,value){return idbPut('meta',{key:key,value:value})}
+async function idbGetMeta(key){var r=await idbGet('meta',key);return r?r.value:null}
+
+async function cacheBooksSnapshot(books){
+  await idbClear('books');
+  var count=0;
+  for(var i=0;i<books.length;i++){
+    var b=books[i];
+    try{
+      await idbPut('books',{book_id:b.id||b.book_id,current_path:b.current_path,title_norm:b.title_norm||b.title,author_norm:b.author_norm,chapter_count:b.chapter_count,quality_score:b.quality_score,cached_at:new Date().toISOString()});
+      count++;
+    }catch(e){}
+  }
+  await idbPutMeta('cachedBookCount',count);
+  await idbPutMeta('lastSyncTime',new Date().toISOString());
+  offlineState.cachedBookCount=count;
+}
+
+async function cacheBookContent(bookId,title,contentData,chaptersData){
+  if(!contentData||!contentData.content)return;
+  await idbPut('contents',{book_id:bookId,title:title,content:contentData.content,encoding:contentData.encoding,cached_at:new Date().toISOString()});
+  if(chaptersData&&chaptersData.chapters){
+    await idbPut('chapters',{book_id:bookId,chapters:chaptersData.chapters});
+  }
+  await idbPutMeta('lastOpenedBookId',bookId);
+}
+
+async function getCachedContent(bookId){
+  return await idbGet('contents',bookId);
+}
+
+async function getCachedBooks(){
+  var books=await idbGetAll('books');
+  return (books||[]).map(function(b){return{book_id:b.book_id,title:b.title_norm||'',author:b.author_norm||'',chapter_count:b.chapter_count||0,quality_score:b.quality_score,area:'library',area_label:'小说库(缓存)'}});
+}
+
+async function loadOfflineBooks(){
+  var cached=await getCachedBooks();
+  state.books=cached;
+  state.total=cached.length;
+  state.totalPages=Math.max(1,Math.ceil(cached.length/state.pageSize));
+  offlineState.cachedBookCount=cached.length;
+  renderShelf();
+}
+
+function getOfflineBooksPage(page){
+  var start=(page-1)*state.pageSize;
+  return state.books.slice(start,start+state.pageSize);
+}
+
+function isOnline(){
+  try{return navigator.onLine!==false}catch(e){return true}
+}
+
+async function tryConnect(){
+  if(!isOnline())return false;
+  try{
+    var r=await fetch('/api/health',{method:'GET',headers:getAuthHeaders(),signal:AbortSignal.timeout(5000)});
+    return r.ok;
+  }catch(e){return false}
+}
 
 // ======== NAVIGATION ========
 function initNavigation(){
@@ -378,28 +472,40 @@ async function openBook(id,title){
 
   if(contentData&&contentData.content){
     var text=contentData.content;
-    if(text.length>500000){
-      eid('readerContent').textContent='长篇小说加载中...';
-      await sleep(50);
-      eid('readerContent').textContent=text.slice(0,300000);
-      await sleep(100);
-      eid('readerContent').textContent=text;
-    }else{
-      eid('readerContent').textContent=text;
-    }
+    if(text.length>500000){eid('readerContent').textContent='长篇小说加载中...';await sleep(50);eid('readerContent').textContent=text.slice(0,300000);await sleep(100);eid('readerContent').textContent=text}
+    else{eid('readerContent').textContent=text}
     readerState.contentLength=text.length;
     if(contentData.encoding){eid('readerEncoding').textContent='编码：'+contentData.encoding.toUpperCase();eid('readerEncoding').style.display=''}
     if(contentData.decode_warning){eid('readerWarning').textContent='⚠ '+contentData.decode_warning;eid('readerWarning').style.display=''}
   }else if(contentData&&contentData.error){
-    eid('readerContent').textContent='错误: '+contentData.error;
+    // Try cached content
+    var cached=await getCachedContent(id);
+    if(cached&&cached.content){
+      eid('readerContent').textContent=cached.content;
+      eid('readerWarning').textContent='离线缓存';eid('readerWarning').style.display='';
+      contentData=cached;
+    }else{eid('readerContent').textContent='错误: '+contentData.error}
   }else{
-    eid('readerContent').textContent='无法加载小说内容';
+    var cached2=await getCachedContent(id);
+    if(cached2&&cached2.content){
+      eid('readerContent').textContent=cached2.content;
+      eid('readerWarning').textContent='离线缓存';eid('readerWarning').style.display='';
+      if(cached2.encoding){eid('readerEncoding').textContent='编码：'+cached2.encoding.toUpperCase();eid('readerEncoding').style.display=''}
+    }else{eid('readerContent').textContent='该小说正文尚未缓存，请连接电脑端后打开一次'}
   }
 
-  // Touch progress to bump read timestamp for sorting
-  markBookOpened(id, progressData);
+  if(offlineState.mode==='online'){
+    markBookOpened(id, progressData);
+  }
 
   await loadChapters(id);
+  // Cache content offline
+  if(offlineState.mode==='online'&&contentData&&contentData.content){
+    try{
+      var chaptersDat={chapters:readerState.chapters};
+      cacheBookContent(id,title,contentData,chaptersDat);
+    }catch(e){console.error('[OfflineCache] cache content failed',e)}
+  }
 
   if(progressData&&progressData.has_progress){
     var restored=false;
@@ -482,10 +588,20 @@ async function saveReadingProgress(){
   var maxScroll=Math.max(1,content.scrollHeight-content.clientHeight);
   var ratio=clampProgress(readerState.lastScroll/maxScroll);
   var payload=buildProgressPayload({progress_ratio:ratio,scroll_position:readerState.lastScroll,current_chapter_index:readerState.currentChapterIndex});
-  await fetch('/api/books/'+readerState.currentBookId+'/progress',{
-    method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify(payload)
-  }).catch(function(){})
+  if(offlineState.mode==='online'){
+    await fetch('/api/books/'+readerState.currentBookId+'/progress',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(payload)
+    }).catch(function(){});
+  }else{
+    // Queue for later sync
+    try{
+      await idbPut('pending_progress',{book_id:readerState.currentBookId,progress_ratio:ratio,scroll_position:readerState.lastScroll,current_chapter_index:readerState.currentChapterIndex,updated_at:new Date().toISOString()});
+      offlineState.pendingUploadCount=await countPendingProgress();
+      updateDrawerStatus();
+      readerToast('进度已保存（待同步）');
+    }catch(e){console.error('[OfflineCache] save pending progress failed',e)}
+  }
 }
 
 function scrollToTop(){eid('readerContent').scrollTop=0;readerState.barsVisible=true;eid('reader').classList.add('bars-visible')}
@@ -958,30 +1074,52 @@ async function syncPushProgress(){
 
 async function doFullSync(){
   toast('开始同步...');
-
-  // Pull changes first
   var pullResult=await syncPullChanges();
-
-  // Then push progress
   var pushResult=await syncPushProgress();
-
+  // Also pull full snapshot to refresh books cache
+  try{
+    var snap=await api('/api/sync/snapshot');
+    if(snap&&snap.books){
+      await idbPutMeta('repo_id',snap.manifest?snap.manifest.repo_id:'');
+      await idbPutMeta('server_revision',snap.manifest?snap.manifest.server_revision:0);
+      await cacheBooksSnapshot(snap.books);
+    }
+  }catch(e){console.error('[OfflineCache] snapshot cache failed',e)}
   var messages=[];
   if(pullResult.message)messages.push(pullResult.message);
   if(pushResult.message)messages.push(pushResult.message);
-
+  offlineState.lastSyncTime=new Date().toISOString();
+  offlineState.pendingUploadCount=await countPendingProgress();
+  updateDrawerStatus();
   toast(messages.join(' | '));
 }
 
 function updateSyncStatusUI(manifest){
-  var el=eid('drawerStatus');
-  if(!el)return;
   if(manifest){
     var rev=manifest.server_revision||0;
-    el.textContent='已连接 r'+rev;
-    el.title='repo_id: '+manifest.repo_id+'\nrevision: '+rev;
+    syncState.online=true;
+    updateDrawerStatus();
   }else{
-    el.textContent='未连接';
+    syncState.online=false;
+    updateDrawerStatus();
   }
+}
+
+function updateDrawerStatus(){
+  var el=eid('drawerStatus');
+  if(!el)return;
+  if(offlineState.mode==='offline'){
+    el.textContent='离线缓存 | '+offlineState.cachedBookCount+'本';
+  }else if(syncState.online){
+    el.textContent='在线';
+  }else{
+    el.textContent='离线缓存 | '+offlineState.cachedBookCount+'本';
+  }
+}
+
+async function countPendingProgress(){
+  var all=await idbGetAll('pending_progress');
+  return (all||[]).length;
 }
 
 // ======== PAIRING ========
@@ -1220,23 +1358,23 @@ async function revokeDevice(deviceId){
 async function init(){
   console.log('[NovelHub] init start');
 
-  // Initialize navigation first (must work even if API fails)
   initNavigation();
-
-  // Initialize sync state
   loadSyncState();
-
-  // Load auth state
   loadAuthState();
-
-  // Check pairing URL
   checkPairUrl();
 
+  // Init IDB
+  await openDB();
+  offlineState.cachedBookCount=(await idbGetMeta('cachedBookCount'))||0;
+  offlineState.lastSyncTime=await idbGetMeta('lastSyncTime');
+
   // Try to connect to server
-  try{
-    var h=await api('/api/health');
-    if(h&&h.ok){
-      if(!authState.needsPairing){
+  var online=await tryConnect();
+  if(online){
+    offlineState.mode='online';
+    try{
+      var h=await api('/api/health');
+      if(h&&h.ok&&!authState.needsPairing){
         try{
           var manifest=await checkSyncManifest();
           updateSyncStatusUI(manifest);
@@ -1244,22 +1382,69 @@ async function init(){
           console.error('[NovelHub] sync manifest check failed:',e);
         }
       }
+    }catch(e){
+      console.error('[NovelHub] health check failed:',e);
     }
-  }catch(e){
-    console.error('[NovelHub] health check failed:',e);
+  }else{
+    offlineState.mode='offline';
+    console.log('[NovelHub] offline mode - using local cache');
   }
 
-  // Load data if not in pairing mode
+  // Load data
   if(!authState.needsPairing){
     try{
-      loadGroups();
-      loadBooks();
+      if(offlineState.mode==='online'){
+        loadGroups();
+        loadBooks();
+      }else{
+        await loadOfflineBooks();
+        disableDangerousOps(true);
+        toast('离线模式：正在使用本地缓存');
+      }
     }catch(e){
       console.error('[NovelHub] load data failed:',e);
     }
   }
 
+  // Try to push pending progress if online
+  if(offlineState.mode==='online'){
+    try{await uploadPendingProgress()}catch(e){}
+    try{offlineState.pendingUploadCount=await countPendingProgress()}catch(e){}
+  }
+
+  updateDrawerStatus();
   console.log('[NovelHub] init complete');
+}
+
+function disableDangerousOps(hide){
+  // Disable upload/scan/analyze buttons in offline mode
+  var btns=[
+    eid('btnScanIncoming'),eid('btnAnalyzeIncoming'),
+    eid('uploadZone'),eid('uploadBtn')
+  ];
+  for(var i=0;i<btns.length;i++){
+    if(btns[i]){btns[i].style.pointerEvents=hide?'none':'';btns[i].style.opacity=hide?'0.5':''}
+  }
+}
+
+async function uploadPendingProgress(){
+  try{
+    var pending=await idbGetAll('pending_progress');
+    if(!pending||pending.length===0)return;
+    var r=await fetch('/api/sync/progress',{
+      method:'POST',
+      headers:Object.assign({'Content-Type':'application/json'},getAuthHeaders()),
+      body:JSON.stringify({device_id:syncState.deviceId||'web',progress:pending.map(function(p){return{book_id:p.book_id,progress_ratio:p.progress_ratio||0,scroll_position:p.scroll_position||0,current_chapter_index:p.current_chapter_index||0}})})
+    });
+    if(r.ok){
+      var d=await r.json();
+      if(d.ok&&d.accepted>0){
+        await idbClear('pending_progress');
+        offlineState.pendingUploadCount=0;
+        console.log('[OfflineCache] uploaded pending progress:',d.accepted);
+      }
+    }
+  }catch(e){}
 }
 
 // Initialize auth state on load

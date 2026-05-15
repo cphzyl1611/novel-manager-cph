@@ -1,7 +1,7 @@
-// NovelHub Service Worker progressfix1
+// NovelHub Service Worker offlinecache1
 // Provides offline caching for PWA functionality
 
-const CACHE_NAME = 'novelhub-progressfix1';
+const CACHE_NAME = 'novelhub-offlinecache1';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
@@ -45,24 +45,33 @@ self.addEventListener('fetch', (event) => {
   const { request } = event;
   const url = new URL(request.url);
 
-  // API calls - network first, cache fallback
+  // POST requests - never cache, pass through to network
+  if (request.method !== 'GET') {
+    event.respondWith(fetch(request).catch(() => new Response('Offline', {status: 503})));
+    return;
+  }
+
+  // API GET calls - network first, no SW caching (IndexedDB manages offline data)
   if (url.pathname.startsWith('/api/')) {
     event.respondWith(
       fetch(request)
-        .then((response) => {
-          // Clone and cache successful responses
-          if (response.ok) {
-            const responseClone = response.clone();
-            caches.open(CACHE_NAME).then((cache) => {
-              cache.put(request, responseClone);
-            });
-          }
-          return response;
-        })
         .catch(() => {
-          // Network failed, try cache
-          return caches.match(request);
+          return caches.match(request).then((cached) => {
+            if (cached) return cached;
+            return new Response(JSON.stringify({ok: false, error: 'offline'}), {
+              status: 503,
+              headers: {'Content-Type': 'application/json'}
+            });
+          });
         })
+    );
+    return;
+  }
+
+  // Navigation requests - serve cached index.html when offline
+  if (request.mode === 'navigate') {
+    event.respondWith(
+      fetch(request).catch(() => caches.match('/'))
     );
     return;
   }
@@ -71,17 +80,12 @@ self.addEventListener('fetch', (event) => {
   event.respondWith(
     caches.match(request)
       .then((cached) => {
-        if (cached) {
-          return cached;
-        }
+        if (cached) return cached;
         return fetch(request)
           .then((response) => {
-            // Cache new static assets
-            if (response.ok && request.method === 'GET') {
+            if (response.ok) {
               const responseClone = response.clone();
-              caches.open(CACHE_NAME).then((cache) => {
-                cache.put(request, responseClone);
-              });
+              caches.open(CACHE_NAME).then((cache) => cache.put(request, responseClone));
             }
             return response;
           });
