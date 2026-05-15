@@ -8,6 +8,29 @@ from ...db import connect as db_connect
 from ..config import is_safe_path, MAX_CONTENT_BYTES
 
 
+def _is_current_library_book(root: Path, book: dict[str, Any]) -> bool:
+    """Check if a book record corresponds to a real, readable library TXT."""
+    if book.get("repo_area") != "library":
+        return False
+    status = book.get("status") or ""
+    if status in ("external_removed", "ignored_missing"):
+        return False
+    current_path = book.get("current_path")
+    if not current_path:
+        return False
+    try:
+        p = Path(current_path).resolve()
+        if not p.exists():
+            return False
+        if p.suffix.lower() != ".txt":
+            return False
+        library_dir = (root / "library").resolve()
+        p.relative_to(library_dir)
+    except (ValueError, OSError):
+        return False
+    return True
+
+
 def list_books(
     repo_path: str,
     q: str = "",
@@ -16,18 +39,26 @@ def list_books(
     offset: int = 0,
     sort: str = "updated_at",
     include_removed: bool = False,
+    page: int = 0,
+    page_size: int = 0,
+    validate_paths: bool = True,
 ) -> dict[str, Any]:
     root = Path(repo_path).expanduser().resolve()
     conn = _open_db(root)
     if conn is None:
-        return {"items": [], "total": 0, "limit": limit, "offset": offset}
+        base = {"items": [], "books": []}
+        if page_size:
+            base["pagination"] = {"page": page, "page_size": page_size, "total": 0, "total_pages": 0, "has_prev": False, "has_next": False}
+        return base
 
     _ensure_progress_table(root)
-    clauses = ["1=1"]
+    clauses: list[str] = []
     params: list[Any] = []
     if area and area != "all":
         clauses.append("b.repo_area = ?")
         params.append(area)
+    else:
+        clauses.append("b.repo_area = 'library'")
     if q:
         like = f"%{q}%"
         clauses.append(
@@ -38,8 +69,6 @@ def list_books(
         clauses.append("(b.status IS NULL OR b.status NOT IN ('external_removed', 'ignored_missing'))")
 
     try:
-        count_sql = f"SELECT COUNT(*) FROM books b WHERE {' AND '.join(clauses)}"
-        total = conn.execute(count_sql, params).fetchone()[0]
         order = "b.updated_at DESC" if sort == "updated_at" else "b.title_norm ASC"
         sql = f"""
             SELECT b.*, GROUP_CONCAT(t.name, ', ') AS tags,
@@ -52,16 +81,59 @@ def list_books(
             WHERE {' AND '.join(clauses)}
             GROUP BY b.id
             ORDER BY {order}
-            LIMIT ? OFFSET ?
         """
-        rows = conn.execute(sql, params + [limit, offset]).fetchall()
+        rows = conn.execute(sql, params).fetchall()
         conn.close()
 
-        items = [_row_to_item(dict(r)) for r in rows]
-        return {"items": items, "total": total, "limit": limit, "offset": offset}
+        # Python-side path validation
+        if validate_paths and area == "all" and not include_removed:
+            valid_rows = [r for r in rows if _is_current_library_book(root, dict(r))]
+        else:
+            valid_rows = rows
+
+        total = len(valid_rows)
+
+        # Pagination
+        if page_size and page >= 1:
+            start = (page - 1) * page_size
+            page_rows = valid_rows[start : start + page_size]
+            total_pages = max(1, (total + page_size - 1) // page_size)
+        elif offset or limit:
+            page_rows = valid_rows[offset : offset + limit]
+            total_pages = 0
+            page_size = 0
+            page = 0
+        else:
+            page_rows = valid_rows
+            total_pages = 0
+            page_size = 0
+            page = 0
+
+        items = [_row_to_item(dict(r)) for r in page_rows]
+        result: dict[str, Any] = {
+            "items": items,
+            "books": items,
+            "total": total,
+        }
+        if page_size:
+            result["limit"] = page_size
+            result["offset"] = (page - 1) * page_size
+            result["pagination"] = {
+                "page": page,
+                "page_size": page_size,
+                "total": total,
+                "total_pages": total_pages,
+                "has_prev": page > 1,
+                "has_next": page < total_pages,
+            }
+        else:
+            result["limit"] = limit
+            result["offset"] = offset
+
+        return result
     except sqlite3.OperationalError:
         conn.close()
-        return {"items": [], "total": 0, "limit": limit, "offset": offset}
+        return {"items": [], "books": [], "total": 0}
 
 
 def get_book_detail(repo_path: str, book_id: int) -> dict[str, Any] | None:

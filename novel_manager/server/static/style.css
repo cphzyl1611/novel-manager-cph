@@ -265,3 +265,11 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
 .settings-page.open{display:block}
 .settings-row{display:flex;justify-content:space-between;align-items:center;padding:12px 0;border-bottom:1px solid var(--border)}
 .settings-row span{font-size:14px}
+
+/* Pagination */
+.pagination-bar{display:flex;flex-direction:column;align-items:center;gap:8px;padding:16px;margin:0 16px}
+.pagination-info{font-size:12px;color:var(--muted)}
+.pagination-btns{display:flex;align-items:center;gap:12px}
+.page-btn{padding:8px 16px;border-radius:8px;border:1px solid var(--border);background:var(--card);font-size:14px;cursor:pointer;color:var(--text)}
+.page-btn:hover{border-color:var(--accent2)}
+.page-indicator{font-size:14px;color:var(--muted)}

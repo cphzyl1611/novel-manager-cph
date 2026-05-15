@@ -217,7 +217,8 @@ def test_mark_removed_does_not_delete_file():
 
 
 def test_mark_removed_excluded_from_books_list():
-    """Test that external_removed books are excluded from books list by default."""
+    """Test that external_removed books are excluded from books list.
+    Missing-file books are already filtered by path validation."""
     repo = _make_repo_with_missing_file()
     try:
         conn = db_connect(repo)
@@ -226,20 +227,20 @@ def test_mark_removed_excluded_from_books_list():
         ).fetchone()["id"]
         conn.close()
 
-        # Before marking, should be in list
+        # The missing book is already filtered by path validation
         before = list_books(str(repo))
-        assert before["total"] == 2
+        assert before["total"] == 1  # Only the existing book
 
         # Mark as removed
         mark_book_external_removed(str(repo), book_id)
 
-        # After marking, should be excluded
+        # Still only the existing book
         after = list_books(str(repo))
         assert after["total"] == 1
 
         # Can include with include_removed=True
         with_removed = list_books(str(repo), include_removed=True)
-        assert with_removed["total"] == 2
+        assert with_removed["total"] == 2  # Both normal + external_removed
     finally:
         import shutil
         shutil.rmtree(repo)

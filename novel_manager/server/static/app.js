@@ -1,7 +1,7 @@
-// NovelHub app.js menufix2
-console.log('[NovelHub] app.js menufix2 loaded');
+// NovelHub app.js shelfpaging1
+console.log('[NovelHub] app.js shelfpaging1 loaded');
 
-let state={books:[],groups:[],currentGroup:'',offset:0,limit:60,total:0,loading:false,hasMore:true,searchQuery:'',currentPage:'shelf'};
+let state={books:[],groups:[],currentGroup:'',page:1,pageSize:40,total:0,totalPages:0,loading:false,searchQuery:'',currentPage:'shelf'};
 let readerState={currentBookId:null,currentTitle:'',barsVisible:true,lastScroll:0,saveThrottle:null,chapters:[],currentChapterIndex:0,contentLength:0};
 
 // ======== AUTH STATE ========
@@ -266,18 +266,21 @@ function findCurrentChapter(){
 // ======== GROUPS ========
 async function loadGroups(){var d=await api('/api/groups');if(!d||!d.items)return;state.groups=d.items;renderGroupTabs()}
 function renderGroupTabs(){var c=eid('groupTabs');var h='<div class="group-tab'+(state.currentGroup===''?' active':'')+'" onclick="selectGroup(\'\')">📚 全部</div>';for(var i=0;i<state.groups.length;i++){var g=state.groups[i];h+='<div class="group-tab'+(state.currentGroup===g.name?' active':'')+'" onclick="selectGroup(\''+esc(g.name)+'\')">'+esc(g.name)+' ('+g.book_count+')</div>'}h+='<div class="group-tab add" onclick="showGroupModal()">+ 新建分组</div>';c.innerHTML=h}
-function selectGroup(name){state.currentGroup=name;state.offset=0;state.books=[];state.hasMore=true;eid('shelf').innerHTML='';renderGroupTabs();loadBooks()}
+function selectGroup(name){state.currentGroup=name;state.page=1;state.books=[];eid('shelf').innerHTML='';renderGroupTabs();loadBooks()}
 function showGroupModal(){eid('groupModal').classList.add('open');eid('groupNameInput').value='';eid('groupNameInput').focus()}
 function closeGroupModal(){eid('groupModal').classList.remove('open')}
 async function createGroup(){var n=eid('groupNameInput').value.trim();if(!n){toast('请输入分组名称');return}var r=await fetch('/api/groups',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:n})});var d=await r.json();if(!r.ok){toast(d.detail||'创建失败');return}closeGroupModal();toast(d.existed?'分组已存在':'分组已创建');loadGroups()}
 
 // ======== BOOKS ========
-async function loadBooks(){if(state.loading||!state.hasMore)return;state.loading=true;var url='/api/books?limit='+state.limit+'&offset='+state.offset;if(state.searchQuery)url+='&q='+encodeURIComponent(state.searchQuery);var d=await api(url);state.loading=false;if(!d)return;if(state.offset===0)state.books=d.items||[];else state.books=state.books.concat(d.items||[]);state.total=d.total||0;state.hasMore=state.books.length<state.total;state.offset+=state.limit;renderShelf()}
-function onSearch(){state.searchQuery=eid('searchInput').value.trim();state.offset=0;state.books=[];state.hasMore=true;eid('shelf').innerHTML='';loadBooks()}
+async function loadBooks(){if(state.loading)return;state.loading=true;var url='/api/books?page='+state.page+'&page_size='+state.pageSize;if(state.searchQuery)url+='&q='+encodeURIComponent(state.searchQuery);var d=await api(url);state.loading=false;if(!d){state.books=[];state.total=0;state.totalPages=0;renderShelf();return}state.books=d.items||[];state.total=d.total||0;if(d.pagination){state.totalPages=d.pagination.total_pages||0;state.page=d.pagination.page||1}else{state.totalPages=Math.ceil(state.total/state.pageSize)||1}renderShelf()}
+function onSearch(){state.searchQuery=eid('searchInput').value.trim();state.page=1;state.books=[];eid('shelf').innerHTML='';loadBooks()}
 
 function renderShelf(){
   var s=eid('shelf'),e=eid('emptyState');
-  if(state.books.length===0&&!state.loading){s.innerHTML='';e.style.display='block';return}
+  if(state.books.length===0&&!state.loading){
+    s.innerHTML='<div class="empty-state">当前书架没有可读小说。<br>请先上传或扫描 library 文件夹。</div>';
+    e.style.display='none';return
+  }
   e.style.display='none';var h='';
   for(var i=0;i<state.books.length;i++){
     var b=state.books[i];
@@ -292,9 +295,23 @@ function renderShelf(){
       +(pct>0?'<div class="progress-bar"><div class="fill" style="width:'+pct+'%"></div></div><div class="meta" style="margin-top:2px"><span>已读 '+pct+'%</span></div>':'<div class="meta"><span>'+(cc?cc+'章':'')+'</span><span>'+(qs?qs+'分':'')+'</span></div>')
       +'</div>'
   }
-  if(state.loading)h+='<div class="loading"><div class="spinner"></div></div>';s.innerHTML=h
+  if(state.loading)h+='<div class="loading"><div class="spinner"></div></div>';
+  // Pagination controls
+  if(state.totalPages>1){
+    h+='<div class="pagination-bar">';
+    h+='<span class="pagination-info">共 '+state.total+' 本，每页 '+state.pageSize+' 本</span>';
+    h+='<div class="pagination-btns">';
+    if(state.page>1)h+='<button class="page-btn" onclick="goToPage('+(state.page-1)+')">上一页</button>';
+    h+='<span class="page-indicator">'+state.page+' / '+state.totalPages+'</span>';
+    if(state.page<state.totalPages)h+='<button class="page-btn" onclick="goToPage('+(state.page+1)+')">下一页</button>';
+    h+='</div></div>';
+  }
+  s.innerHTML=h
 }
-window.addEventListener('scroll',function(){if(state.currentPage!=='shelf')return;if(window.scrollY+window.innerHeight>document.body.offsetHeight-300)loadBooks()});
+
+function goToPage(p){
+  state.page=p;state.books=[];eid('shelf').innerHTML='';window.scrollTo(0,0);loadBooks();
+}
 
 // ======== READER CORE ========
 async function openBook(id,title){
@@ -363,7 +380,7 @@ function closeReader(){
   eid('tocOverlay').classList.remove('open');
   eid('settingsPanel').classList.remove('open');
   eid('settingsOverlay').classList.remove('open');
-  state.offset=0;state.books=[];state.hasMore=true;
+  state.page=1;state.books=[];
   eid('shelf').innerHTML='';
   loadBooks();
 }
@@ -469,7 +486,7 @@ async function doImport(bookId){
   _removeAnalysisCard(bookId);
   toast('已加入书架');
   doAnalyzeIncoming();
-  state.offset=0;state.books=[];state.hasMore=true;eid('shelf').innerHTML='';loadBooks()
+  state.page=1;state.books=[];eid('shelf').innerHTML='';loadBooks()
 }
 async function doMoveReview(bookId){
   if(!confirm('移入重复复核区？\n\n将只把新下载区的这份文件移入重复复核区，\n不会删除任何文件，也不会影响小说库中已有版本。'))return;
@@ -625,7 +642,7 @@ async function doReplaceLibrary(incomingId,matchedId){
     toast('已替换旧版。旧版没有可继承的阅读进度。');
   }
   doAnalyzeIncoming();
-  state.offset=0;state.books=[];state.hasMore=true;
+  state.page=1;state.books=[];
   eid('shelf').innerHTML='';
   loadBooks();
 }
@@ -669,7 +686,7 @@ async function doBatchSafe(){
   }
   toast('完成：加入书架 '+imported+' 本，移入重复复核区 '+moved+' 本，失败 '+failed+' 本');
   doAnalyzeIncoming();
-  state.offset=0;state.books=[];state.hasMore=true;eid('shelf').innerHTML='';loadBooks()
+  state.page=1;state.books=[];eid('shelf').innerHTML='';loadBooks()
 }
 
 // ======== HEALTH CENTER ========
@@ -820,7 +837,7 @@ async function syncPullChanges(){
   if(changes.changes&&changes.changes.length>0){
     syncState.lastSyncedRevision=manifest.server_revision;
     saveSyncState();
-    state.offset=0;state.books=[];state.hasMore=true;
+    state.page=1;state.books=[];
     eid('shelf').innerHTML='';
     await loadBooks();
     return{ok:true,changes:changes.changes.length,message:'已同步 '+changes.changes.length+' 条变更'};

@@ -84,7 +84,8 @@ class TestBooksService:
     def test_list_all(self):
         repo = _make_repo()
         r = list_books(str(repo), limit=10)
-        assert r["total"] == 3
+        # Only 2 library books with existing files pass path validation
+        assert r["total"] == 2
 
     def test_search(self):
         repo = _make_repo()
@@ -396,7 +397,8 @@ class TestReadingProgress:
         from novel_manager.server.services.progress_service import save_progress
         save_progress(str(repo), 1, 0.5, 100)
         r = list_books(str(repo))
-        assert r["total"] == 3
+        # Only 2 library books with existing files
+        assert r["total"] == 2
 
 
 
