@@ -1,5 +1,5 @@
-// NovelHub app.js recentread1
-console.log('[NovelHub] app.js recentread1 loaded');
+// NovelHub app.js progressfix1
+console.log('[NovelHub] app.js progressfix1 loaded');
 
 let state={books:[],groups:[],currentGroup:'',page:1,pageSize:35,total:0,totalPages:0,loading:false,searchQuery:'',currentPage:'shelf'};
 let readerState={currentBookId:null,currentTitle:'',barsVisible:true,lastScroll:0,saveThrottle:null,chapters:[],currentChapterIndex:0,contentLength:0};
@@ -448,28 +448,43 @@ function updateReaderProgress(){
   findCurrentChapter();
 }
 
+// ======== PROGRESS PAYLOAD HELPERS ========
+function safeNumber(v,fallback){
+  var n=Number(v);
+  return Number.isFinite(n)?n:fallback;
+}
+function clampProgress(v){
+  var n=safeNumber(v,0);
+  if(n<0)return 0;
+  if(n>1)return 1;
+  return n;
+}
+function buildProgressPayload(pd){
+  return {
+    device_id:'web',
+    progress_ratio:clampProgress(pd&&pd.progress_ratio),
+    scroll_position:Math.max(0,Math.floor(safeNumber(pd&&pd.scroll_position,0))),
+    current_chapter_index:Math.max(0,Math.floor(safeNumber(pd&&pd.current_chapter_index,0)))
+  };
+}
+
 async function markBookOpened(bookId,progressData){
   // Lightweight progress touch to bump latest_read_at for sorting
-  var ratio=0,scroll=0,chIdx=0;
-  if(progressData&&progressData.has_progress){
-    ratio=progressData.progress_ratio||0;
-    scroll=progressData.scroll_position||0;
-    chIdx=progressData.current_chapter_index||0;
-  }
-  postApi('/api/books/'+bookId+'/progress',{
-    progress_ratio:ratio,
-    scroll_position:scroll,
-    device_id:'web',
-    current_chapter_index:chIdx
-  });
+  var payload=buildProgressPayload(progressData&&progressData.has_progress?progressData:null);
+  var r=await postApi('/api/books/'+bookId+'/progress',payload);
+  if(!r||r.ok===false)console.error('[NovelHub] markBookOpened failed',r,payload);
 }
 
 async function saveReadingProgress(){
   if(!readerState.currentBookId)return;
   updateReaderProgress();
+  var content=eid('readerContent');
+  var maxScroll=Math.max(1,content.scrollHeight-content.clientHeight);
+  var ratio=clampProgress(readerState.lastScroll/maxScroll);
+  var payload=buildProgressPayload({progress_ratio:ratio,scroll_position:readerState.lastScroll,current_chapter_index:readerState.currentChapterIndex});
   await fetch('/api/books/'+readerState.currentBookId+'/progress',{
     method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({progress_ratio:Math.round(readerState.lastScroll/(eid('readerContent').scrollHeight-eid('readerContent').clientHeight||1)*100)/100||0,scroll_position:readerState.lastScroll,device_id:'web',current_chapter_index:readerState.currentChapterIndex})
+    body:JSON.stringify(payload)
   }).catch(function(){})
 }
 

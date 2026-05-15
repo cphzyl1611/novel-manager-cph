@@ -1,7 +1,7 @@
-// NovelHub Service Worker recentread1
+// NovelHub Service Worker progressfix1
 // Provides offline caching for PWA functionality
 
-const CACHE_NAME = 'novelhub-recentread1';
+const CACHE_NAME = 'novelhub-progressfix1';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
