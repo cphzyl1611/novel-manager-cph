@@ -1,7 +1,7 @@
-// NovelHub Service Worker shelfpaging3
+// NovelHub Service Worker recentread1
 // Provides offline caching for PWA functionality
 
-const CACHE_NAME = 'novelhub-shelfpaging3';
+const CACHE_NAME = 'novelhub-recentread1';
 const STATIC_ASSETS = [
   '/',
   '/index.html',

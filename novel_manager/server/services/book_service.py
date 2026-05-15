@@ -69,15 +69,31 @@ def list_books(
         clauses.append("(b.status IS NULL OR b.status NOT IN ('external_removed', 'ignored_missing'))")
 
     try:
-        order = "b.updated_at DESC" if sort == "updated_at" else "b.title_norm ASC"
+        if sort == "title":
+            order = "b.title_norm ASC"
+        elif sort == "updated_at":
+            order = "b.updated_at DESC"
+        else:
+            # Default: recent_read — books with recent progress first
+            order = """CASE WHEN rpl.latest_read_at IS NULL THEN 1 ELSE 0 END ASC,
+                       rpl.latest_read_at DESC,
+                       b.updated_at DESC,
+                       b.id DESC"""
+
         sql = f"""
             SELECT b.*, GROUP_CONCAT(t.name, ', ') AS tags,
                    rp.progress_ratio AS reading_progress,
-                   rp.updated_at AS progress_updated_at
+                   rp.updated_at AS progress_updated_at,
+                   rpl.latest_read_at AS latest_read_at
             FROM books b
             LEFT JOIN book_tags bt ON bt.book_id = b.id
             LEFT JOIN tags t ON t.id = bt.tag_id
             LEFT JOIN reading_progress rp ON rp.book_id = b.id AND rp.device_id = 'web'
+            LEFT JOIN (
+                SELECT book_id, MAX(updated_at) AS latest_read_at
+                FROM reading_progress
+                GROUP BY book_id
+            ) rpl ON rpl.book_id = b.id
             WHERE {' AND '.join(clauses)}
             GROUP BY b.id
             ORDER BY {order}
@@ -260,6 +276,7 @@ def _row_to_item(d: dict[str, Any]) -> dict[str, Any]:
         "chapter_count": d.get("chapter_count") or 0,
         "reading_progress": float(progress) if progress is not None else 0.0,
         "last_read_at": d.get("progress_updated_at") or None,
+        "latest_read_at": d.get("latest_read_at") or None,
         "tags": _split_tags(d.get("tags")),
         "status": "normal",
     }

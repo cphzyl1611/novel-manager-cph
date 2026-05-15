@@ -24,7 +24,7 @@ def books_list(
     area: str = Query(default="all"),
     limit: int = Query(default=60, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
-    sort: str = Query(default="updated_at"),
+    sort: str = Query(default="recent_read"),
     include_removed: bool = Query(default=False),
     page: int = Query(default=0, ge=0),
     page_size: int = Query(default=0, ge=0, le=500),

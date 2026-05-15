@@ -1,5 +1,5 @@
-// NovelHub app.js shelfpaging3
-console.log('[NovelHub] app.js shelfpaging3 loaded');
+// NovelHub app.js recentread1
+console.log('[NovelHub] app.js recentread1 loaded');
 
 let state={books:[],groups:[],currentGroup:'',page:1,pageSize:35,total:0,totalPages:0,loading:false,searchQuery:'',currentPage:'shelf'};
 let readerState={currentBookId:null,currentTitle:'',barsVisible:true,lastScroll:0,saveThrottle:null,chapters:[],currentChapterIndex:0,contentLength:0};
@@ -298,7 +298,7 @@ function closeGroupModal(){eid('groupModal').classList.remove('open')}
 async function createGroup(){var n=eid('groupNameInput').value.trim();if(!n){toast('请输入分组名称');return}var r=await fetch('/api/groups',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:n})});var d=await r.json();if(!r.ok){toast(d.detail||'创建失败');return}closeGroupModal();toast(d.existed?'分组已存在':'分组已创建');loadGroups()}
 
 // ======== BOOKS ========
-async function loadBooks(){if(state.loading)return;state.loading=true;var url='/api/books?page='+state.page+'&page_size='+state.pageSize;if(state.searchQuery)url+='&q='+encodeURIComponent(state.searchQuery);var d=await api(url);state.loading=false;if(!d){state.books=[];state.total=0;state.totalPages=0;renderShelf();return}state.books=d.items||[];state.total=d.total||0;if(d.pagination){state.totalPages=d.pagination.total_pages||0;state.page=d.pagination.page||1}else{state.totalPages=Math.ceil(state.total/state.pageSize)||1}renderShelf()}
+async function loadBooks(){if(state.loading)return;state.loading=true;var url='/api/books?page='+state.page+'&page_size='+state.pageSize+'&sort=recent_read';if(state.searchQuery)url+='&q='+encodeURIComponent(state.searchQuery);var d=await api(url);state.loading=false;if(!d){state.books=[];state.total=0;state.totalPages=0;renderShelf();return}state.books=d.items||[];state.total=d.total||0;if(d.pagination){state.totalPages=d.pagination.total_pages||0;state.page=d.pagination.page||1}else{state.totalPages=Math.ceil(state.total/state.pageSize)||1}renderShelf()}
 function onSearch(){state.searchQuery=eid('searchInput').value.trim();state.page=1;state.books=[];eid('shelf').innerHTML='';loadBooks()}
 
 function renderShelf(){
@@ -396,6 +396,9 @@ async function openBook(id,title){
     eid('readerContent').textContent='无法加载小说内容';
   }
 
+  // Touch progress to bump read timestamp for sorting
+  markBookOpened(id, progressData);
+
   await loadChapters(id);
 
   if(progressData&&progressData.has_progress){
@@ -443,6 +446,22 @@ function updateReaderProgress(){
   eid('readerProgressText').textContent=pct+'%';
   readerState.lastScroll=scroll;
   findCurrentChapter();
+}
+
+async function markBookOpened(bookId,progressData){
+  // Lightweight progress touch to bump latest_read_at for sorting
+  var ratio=0,scroll=0,chIdx=0;
+  if(progressData&&progressData.has_progress){
+    ratio=progressData.progress_ratio||0;
+    scroll=progressData.scroll_position||0;
+    chIdx=progressData.current_chapter_index||0;
+  }
+  postApi('/api/books/'+bookId+'/progress',{
+    progress_ratio:ratio,
+    scroll_position:scroll,
+    device_id:'web',
+    current_chapter_index:chIdx
+  });
 }
 
 async function saveReadingProgress(){
