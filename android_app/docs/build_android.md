@@ -4,8 +4,31 @@
 
 - Android Studio Hedgehog (2024.1+) or Android SDK CLI
 - Android SDK Platform 34
-- JDK 17
-- Kotlin 1.9+
+- **JDK 17**
+- **Gradle 8.5** — NOT Gradle 9.x
+
+## Gradle 9 incompatibility
+
+AGP 8.2.0 + Kotlin 1.9.20 are incompatible with Gradle 9.0.0.
+If Android Studio auto-downloads Gradle 9, you see:
+
+```
+Unable to load class 'org.gradle.api.internal.HasConvention'
+```
+
+`HasConvention` was removed in Gradle 9.
+
+**Solution:** This project pins Gradle 8.5 in `gradle/wrapper/gradle-wrapper.properties`:
+
+```
+distributionUrl=https://services.gradle.org/distributions/gradle-8.5-bin.zip
+```
+
+In Android Studio, set Gradle JDK to JDK 17:
+File → Settings → Build, Execution, Deployment → Build Tools → Gradle → Gradle JDK → JDK 17.
+
+If no `gradlew` file exists (wrapper jar not committed), use Android Studio — it auto-generates the wrapper
+using the pinned version from gradle-wrapper.properties. Or install Gradle 8.5 and run `gradle wrapper`.
 
 ## Current status
 

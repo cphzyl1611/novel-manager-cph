@@ -119,3 +119,38 @@ def test_server_layout_has_error_text():
 def test_server_layout_has_btn_retry():
     content = (ANDROID_APP / "app" / "src" / "main" / "res" / "layout" / "activity_server.xml").read_text(encoding="utf-8")
     assert "btnRetry" in content
+
+def test_gradle_wrapper_properties_exists():
+    assert (ANDROID_APP / "gradle" / "wrapper" / "gradle-wrapper.properties").exists()
+
+
+def test_gradle_wrapper_pins_8_5():
+    content = (ANDROID_APP / "gradle" / "wrapper" / "gradle-wrapper.properties").read_text(encoding="utf-8")
+    assert "gradle-8.5-bin.zip" in content
+
+
+def test_root_build_gradle_has_agp_8_2_0():
+    content = (ANDROID_APP / "build.gradle").read_text(encoding="utf-8")
+    assert "com.android.application" in content
+    assert "8.2.0" in content
+
+
+def test_root_build_gradle_has_kotlin_1_9_20():
+    content = (ANDROID_APP / "build.gradle").read_text(encoding="utf-8")
+    assert "org.jetbrains.kotlin.android" in content
+    assert "1.9.20" in content
+
+
+def test_build_doc_explains_gradle_9_issue():
+    content = (ANDROID_APP / "docs" / "build_android.md").read_text(encoding="utf-8")
+    assert "HasConvention" in content
+
+
+def test_build_doc_recommends_gradle_8_5():
+    content = (ANDROID_APP / "docs" / "build_android.md").read_text(encoding="utf-8")
+    assert "Gradle 8.5" in content or "gradle-8.5" in content
+
+
+def test_no_gradle_9_references():
+    content = (ANDROID_APP / "gradle" / "wrapper" / "gradle-wrapper.properties").read_text(encoding="utf-8")
+    assert "gradle-9" not in content
