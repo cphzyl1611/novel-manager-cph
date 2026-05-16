@@ -3,11 +3,14 @@ package com.novelhub.app
 import android.annotation.SuppressLint
 import android.os.Bundle
 import android.view.KeyEvent
+import android.view.Menu
+import android.view.MenuItem
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 
@@ -24,6 +27,39 @@ class MainActivity : AppCompatActivity() {
         loadServer()
     }
 
+    override fun onCreateOptionsMenu(menu: Menu): Boolean {
+        menuInflater.inflate(R.menu.menu_main, menu)
+        return true
+    }
+
+    override fun onOptionsItemSelected(item: MenuItem): Boolean {
+        when (item.itemId) {
+            R.id.action_change_server -> { showServerInput(); return true }
+            R.id.action_clear_cache -> {
+                AlertDialog.Builder(this)
+                    .setMessage("Clear all cached data? This removes offline books and reading progress.")
+                    .setPositiveButton("Clear") { _, _ ->
+                        webView.clearCache(true)
+                        webView.clearHistory()
+                        deleteDatabase("webview.db")
+                        deleteDatabase("webviewCache.db")
+                        webView.reload()
+                        Toast.makeText(this, "Cache cleared", Toast.LENGTH_SHORT).show()
+                    }
+                    .setNegativeButton("Cancel", null).show()
+                return true
+            }
+            R.id.action_about -> {
+                AlertDialog.Builder(this)
+                    .setTitle("NovelHub")
+                    .setMessage("Version 1.0\n\nWebView wrapper for NovelHub PWA.\nConnect to a LAN server to sync your library.")
+                    .setPositiveButton("OK", null).show()
+                return true
+            }
+        }
+        return super.onOptionsItemSelected(item)
+    }
+
     private fun configureWebView() {
         webView.settings.apply {
             javaScriptEnabled = true
@@ -37,9 +73,9 @@ class MainActivity : AppCompatActivity() {
             loadWithOverviewMode = true
         }
         webView.webViewClient = object : WebViewClient() {
-            override fun onReceivedError(
-                view: WebView?, request: WebResourceRequest?, error: WebResourceError?
-            ) { showErrorPage() }
+            override fun onReceivedError(v: WebView?, r: WebResourceRequest?, e: WebResourceError?) {
+                showErrorPage()
+            }
         }
         webView.webChromeClient = WebChromeClient()
     }
@@ -53,14 +89,19 @@ class MainActivity : AppCompatActivity() {
 
     private fun showServerInput() {
         setContentView(R.layout.activity_server)
-        val input = findViewById<android.widget.EditText>(R.id.serverInput)
         val prefs = getSharedPreferences("novelhub", MODE_PRIVATE)
+        val input = findViewById<android.widget.EditText>(R.id.serverInput)
         input.setText(prefs.getString("server_url", "") ?: "")
         findViewById<android.widget.Button>(R.id.btnConnect).setOnClickListener { connectFromInput() }
+        findViewById<android.widget.TextView>(R.id.errorText).visibility = android.view.View.GONE
+        findViewById<android.widget.Button>(R.id.btnRetry).visibility = android.view.View.GONE
     }
 
     private fun showErrorPage() {
         setContentView(R.layout.activity_server)
+        val error = findViewById<android.widget.TextView>(R.id.errorText)
+        error.visibility = android.view.View.VISIBLE
+        error.text = "Cannot connect to server.\nCheck that the PC is on the same Wi-Fi and the server is running."
         findViewById<android.widget.Button>(R.id.btnRetry).visibility = android.view.View.VISIBLE
         findViewById<android.widget.Button>(R.id.btnRetry).setOnClickListener {
             setContentView(R.layout.activity_main)

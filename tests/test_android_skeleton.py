@@ -73,3 +73,49 @@ def test_apk_plan_has_recommendation():
     assert "WebView" in content
     assert "TWA" in content
     assert "推荐" in content or "recommend" in content.lower()
+
+def test_settings_gradle_exists():
+    assert (ANDROID_APP / "settings.gradle").exists()
+
+
+def test_root_build_gradle_exists():
+    assert (ANDROID_APP / "build.gradle").exists()
+
+
+def test_gradle_properties_exists():
+    assert (ANDROID_APP / "gradle.properties").exists()
+
+
+def test_menu_resource_exists():
+    assert (ANDROID_APP / "app" / "src" / "main" / "res" / "menu" / "menu_main.xml").exists()
+
+
+def test_menu_has_change_server():
+    content = (ANDROID_APP / "app" / "src" / "main" / "res" / "menu" / "menu_main.xml").read_text(encoding="utf-8")
+    assert "action_change_server" in content
+    assert "action_clear_cache" in content
+
+
+def test_main_activity_has_change_server():
+    content = (ANDROID_APP / "app" / "src" / "main" / "java" / "com" / "novelhub" / "app" / "MainActivity.kt").read_text(encoding="utf-8")
+    assert "R.id.action_change_server" in content
+
+
+def test_main_activity_has_clear_cache():
+    content = (ANDROID_APP / "app" / "src" / "main" / "java" / "com" / "novelhub" / "app" / "MainActivity.kt").read_text(encoding="utf-8")
+    assert "R.id.action_clear_cache" in content or "clearCache" in content
+
+
+def test_main_activity_has_on_key_down():
+    content = (ANDROID_APP / "app" / "src" / "main" / "java" / "com" / "novelhub" / "app" / "MainActivity.kt").read_text(encoding="utf-8")
+    assert "onKeyDown" in content
+
+
+def test_server_layout_has_error_text():
+    content = (ANDROID_APP / "app" / "src" / "main" / "res" / "layout" / "activity_server.xml").read_text(encoding="utf-8")
+    assert "errorText" in content
+
+
+def test_server_layout_has_btn_retry():
+    content = (ANDROID_APP / "app" / "src" / "main" / "res" / "layout" / "activity_server.xml").read_text(encoding="utf-8")
+    assert "btnRetry" in content
