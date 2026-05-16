@@ -167,3 +167,80 @@ def test_chapter_content_not_empty():
         assert result is not None and len(result["content"]) > 0
     finally:
         import shutil; shutil.rmtree(repo)
+
+
+def test_large_chinese_text_fully_covered():
+    """100k+ char Chinese novel: virtual chapters cover all content, no truncation."""
+    repo = _make_repo()
+    try:
+        # Generate 100k+ Chinese text (simulating a full novel chapter)
+        lines = []
+        for i in range(2000):
+            lines.append("第" + str(i) + "段 这是一段中文测试文本，用于验证小说内容完整性。"
+                          + "我们将确保没有任何内容被截断。")
+        content = "\n\n".join(lines)
+        assert len(content) >= 90000  # 90k+ chars, substantial Chinese novel
+
+        import sqlite3
+        book_path = repo / "library" / "big_cn.txt"
+        book_path.write_text(content, encoding="utf-8")
+        dbp = repo / "db" / "novel_repo.sqlite"
+        conn = sqlite3.connect(str(dbp)); conn.row_factory = sqlite3.Row
+        conn.execute("INSERT INTO books (id, current_path, title_raw, title_norm, author_norm, repo_area, status, chapter_count, file_name) VALUES (?,?,?,?,?,?,?,?,?)",
+            (200, str(book_path), "长篇测试", "长篇测试", "测试作者", "library", None, 0, "big_cn.txt"))
+        conn.commit(); conn.close()
+
+        from novel_manager.server.services.mobile_service import get_mobile_chapters, get_mobile_chapter_content
+
+        chs = get_mobile_chapters(str(repo), 200)
+        assert chs is not None and chs["note"] == "virtual"
+        vc_count = len(chs["chapters"])
+        assert vc_count >= 2  # Must generate multiple virtual chapters
+
+        # Verify every virtual chapter
+        combined = ""
+        for i in range(vc_count):
+            cc = get_mobile_chapter_content(str(repo), 200, i)
+            assert cc is not None, "virtual chapter " + str(i) + " is None"
+            assert len(cc["content"]) > 0, "virtual chapter " + str(i) + " is empty"
+            if i == 0:
+                assert cc["prev"] is None
+            else:
+                assert cc["prev"] == i - 1
+            if i == vc_count - 1:
+                assert cc["next"] is None
+            else:
+                assert cc["next"] == i + 1
+            combined += cc["content"]
+
+        # Combined virtual chapters >= 99.9% of original (allow trivial encoding diff)
+        assert len(combined) >= len(content) * 0.999, \
+            "content loss: " + str(len(combined)) + " vs " + str(len(content))
+    finally:
+        import shutil; shutil.rmtree(repo)
+
+
+def test_real_chapter_not_truncated():
+    """Chapter with real offsets returns full chapter content, not truncated."""
+    repo = _make_repo()
+    try:
+        import sqlite3
+        # Write chapter offsets for book_id=1
+        book1 = repo / "library" / "book1.txt"
+        long_chapter = "第一章 测试章节\n" + ("这是一段较长的测试内容。" * 500)
+        book1.write_text(long_chapter, encoding="utf-8")
+        dbp = repo / "db" / "novel_repo.sqlite"
+        conn = sqlite3.connect(str(dbp)); conn.row_factory = sqlite3.Row
+        conn.execute("UPDATE books SET chapter_count=1 WHERE id=1")
+        conn.execute("INSERT INTO chapters (book_id, chapter_index, title_raw, start_offset, end_offset) VALUES (?,?,?,?,?)",
+            (1, 0, "第一章 测试章节", 0, len("第一章 测试章节\n".encode("utf-8")) + len("这是一段较长的测试内容。".encode("utf-8")) * 500))
+        conn.commit(); conn.close()
+
+        from novel_manager.server.services.mobile_service import get_mobile_chapter_content
+        result = get_mobile_chapter_content(str(repo), 1, 0)
+        assert result is not None
+        assert "这是一段较长的测试内容" in result["content"]
+        # Content should have substantial length, not just a few chars
+        assert len(result["content"]) > 100
+    finally:
+        import shutil; shutil.rmtree(repo)

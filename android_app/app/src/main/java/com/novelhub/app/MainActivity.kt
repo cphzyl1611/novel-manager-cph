@@ -9,7 +9,6 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
-import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import com.novelhub.app.data.ApiClient
 import com.novelhub.app.data.Book
@@ -26,7 +25,7 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         db = LocalDbHelper(this)
         ApiClient.init(this)
-        title = "NovelHub"
+        title = getString(R.string.app_name)
 
         val scroll = ScrollView(this)
         shelfLayout = LinearLayout(this).apply {
@@ -35,42 +34,38 @@ class MainActivity : AppCompatActivity() {
         }
         scroll.addView(shelfLayout)
         setContentView(scroll)
-
         loadLocalShelf()
     }
 
     private fun loadLocalShelf() {
         shelfLayout.removeAllViews()
-
-        // Toolbar: Sync + Server buttons
-        val toolbar = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, 0, 0, 12) }
-        toolbar.addView(Button(this).apply { text = "Sync"; setOnClickListener { doSync() } })
-        toolbar.addView(Button(this).apply {
-            text = "Server"
-            setOnClickListener { startActivity(Intent(this@MainActivity, ServerConfigActivity::class.java)) }
-        })
+        val toolbar = createToolbar()
         shelfLayout.addView(toolbar)
-
         executor.execute {
             books = db.getAllBooks()
-            runOnUiThread { renderShelf(toolbar) }
+            runOnUiThread { renderShelfInner() }
         }
     }
 
-    private fun renderShelf(toolbar: LinearLayout) {
+    private fun createToolbar(): LinearLayout {
+        val t = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, 0, 0, 12) }
+        t.addView(Button(this).apply { text = getString(R.string.sync); setOnClickListener { doSync() } })
+        t.addView(Button(this).apply { text = getString(R.string.server_config); setOnClickListener { startActivity(Intent(this@MainActivity, ServerConfigActivity::class.java)) } })
+        return t
+    }
+
+    private fun renderShelfInner() {
         shelfLayout.removeAllViews()
-        shelfLayout.addView(toolbar)
+        shelfLayout.addView(createToolbar())
 
         if (books.isEmpty()) {
-            val tv = TextView(this).apply {
-                text = "No books yet." + "\n" + "Tap Sync to connect to your PC server."
-                setPadding(16, 48, 16, 16)
-                textSize = 15f
-            }
-            shelfLayout.addView(tv)
+            shelfLayout.addView(TextView(this).apply {
+                text = getString(R.string.no_books) + "\n" + getString(R.string.tap_sync)
+                setPadding(16, 48, 16, 16); textSize = 15f
+            })
         } else {
             for (b in books) {
-                val info = b.title + "\n" + b.author + " | " + b.chapterCount + " ch"
+                val info = b.title + "\n" + b.author + " | " + b.chapterCount + "章"
                 val card = TextView(this).apply {
                     text = info; setPadding(16, 14, 16, 14); textSize = 16f
                     setBackgroundColor(0xFFFFFFFF.toInt())
@@ -83,8 +78,7 @@ class MainActivity : AppCompatActivity() {
                 }
                 val params = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
-                )
-                params.setMargins(0, 0, 0, 8)
+                ).apply { setMargins(0, 0, 0, 8) }
                 shelfLayout.addView(card, params)
             }
         }
@@ -92,28 +86,30 @@ class MainActivity : AppCompatActivity() {
 
     private fun doSync() {
         if (!ApiClient.hasServerUrl()) {
-            Toast.makeText(this, "Set server address first", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.set_server_first), Toast.LENGTH_SHORT).show()
             startActivity(Intent(this, ServerConfigActivity::class.java))
             return
         }
-        Toast.makeText(this, "Syncing...", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, getString(R.string.syncing), Toast.LENGTH_SHORT).show()
         executor.execute {
             val resp = ApiClient.fetchBooks()
             if (resp.items.isNotEmpty()) {
                 db.upsertBooks(resp.items)
                 books = db.getAllBooks()
-                runOnUiThread { renderShelf(shelfLayout.getChildAt(0) as LinearLayout) }
-                runOnUiThread { Toast.makeText(this, resp.items.size.toString() + " books synced", Toast.LENGTH_SHORT).show() }
+                runOnUiThread {
+                    renderShelfInner()
+                    Toast.makeText(this@MainActivity, getString(R.string.books_synced).format(resp.items.size), Toast.LENGTH_SHORT).show()
+                }
             } else {
-                runOnUiThread { Toast.makeText(this, "Sync failed or no books", Toast.LENGTH_SHORT).show() }
+                runOnUiThread { Toast.makeText(this@MainActivity, getString(R.string.sync_failed), Toast.LENGTH_SHORT).show() }
             }
         }
     }
 
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
-        menu.add(0, 1, 0, "Sync")
-        menu.add(0, 2, 0, "Server Config")
-        menu.add(0, 3, 0, "Clear Cache")
+        menu.add(0, 1, 0, getString(R.string.sync))
+        menu.add(0, 2, 0, getString(R.string.server_config))
+        menu.add(0, 3, 0, getString(R.string.clear_cache))
         return true
     }
 
@@ -121,7 +117,10 @@ class MainActivity : AppCompatActivity() {
         when (item.itemId) {
             1 -> doSync()
             2 -> startActivity(Intent(this, ServerConfigActivity::class.java))
-            3 -> { db.clearCache(); loadLocalShelf(); Toast.makeText(this, "Cache cleared", Toast.LENGTH_SHORT).show() }
+            3 -> {
+                db.clearCache(); loadLocalShelf()
+                Toast.makeText(this, getString(R.string.cache_cleared), Toast.LENGTH_SHORT).show()
+            }
         }
         return true
     }

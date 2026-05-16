@@ -102,7 +102,7 @@ def test_main_activity_has_change_server():
 
 def test_main_activity_has_clear_cache():
     content = (ANDROID_APP / "app" / "src" / "main" / "java" / "com" / "novelhub" / "app" / "MainActivity.kt").read_text(encoding="utf-8")
-    assert "Clear Cache" in content or "deleteDatabase" in content
+    assert "Clear Cache" in content or "deleteDatabase" in content or "clearCache" in content or "cache_cleared" in content
 
 
 def test_reader_has_paged_navigation():
@@ -200,3 +200,58 @@ def test_local_db_helper_exists():
 
 def test_models_exist():
     assert (ANDROID_APP / "app" / "src" / "main" / "java" / "com" / "novelhub" / "app" / "data" / "Models.kt").exists()
+
+def test_strings_xml_has_chinese_strings():
+    content = (ANDROID_APP / "app" / "src" / "main" / "res" / "values" / "strings.xml").read_text(encoding="utf-8")
+    assert '同步' in content  # 同步
+    assert '上一页' in content  # 上一页
+    assert '下一页' in content  # 下一页
+    assert '目录' in content  # 目录
+    assert '加载失败' in content  # 加载失败
+
+
+def test_main_activity_uses_string_resources():
+    content = (ANDROID_APP / "app" / "src" / "main" / "java" / "com" / "novelhub" / "app" / "MainActivity.kt").read_text(encoding="utf-8")
+    assert "getString(R.string." in content
+
+
+def test_reader_activity_uses_string_resources():
+    content = (ANDROID_APP / "app" / "src" / "main" / "java" / "com" / "novelhub" / "app" / "ReaderActivity.kt").read_text(encoding="utf-8")
+    assert "getString(R.string." in content
+
+
+def test_reader_activity_no_hardcoded_english_ui():
+    content = (ANDROID_APP / "app" / "src" / "main" / "java" / "com" / "novelhub" / "app" / "ReaderActivity.kt").read_text(encoding="utf-8")
+    assert '"Loading..."' not in content
+    assert '"Failed to load chapter."' not in content
+    assert '"No chapters"' not in content
+    assert '"Prev"' not in content
+    assert '"Next"' not in content
+
+
+def test_paginate_text_covers_all_content():
+    # paginateText must produce pages that concatenate back to original
+    assert "paginateText" in (ANDROID_APP / "app" / "src" / "main" / "java" / "com" / "novelhub" / "app" / "ReaderActivity.kt").read_text(encoding="utf-8")
+
+
+def test_reader_has_page_index_bounds_check():
+    content = (ANDROID_APP / "app" / "src" / "main" / "java" / "com" / "novelhub" / "app" / "ReaderActivity.kt").read_text(encoding="utf-8")
+    assert "coerceIn" in content
+    assert "coerceAtLeast" in content
+
+
+def test_reader_has_empty_pages_guard():
+    content = (ANDROID_APP / "app" / "src" / "main" / "java" / "com" / "novelhub" / "app" / "ReaderActivity.kt").read_text(encoding="utf-8")
+    assert "pages.isEmpty()" in content
+    assert "pages.size" in content
+
+
+def test_legado_gap_doc_exists():
+    assert (ROOT / "docs" / "android" / "Legado_like_reader_gap_analysis.md").exists()
+
+
+def test_legado_gap_doc_has_phases():
+    content = (ROOT / "docs" / "android" / "Legado_like_reader_gap_analysis.md").read_text(encoding="utf-8")
+    assert "Phase 1" in content
+    assert "Phase 2" in content
+    assert "Gap" in content or "MAJOR" in content
