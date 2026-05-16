@@ -280,3 +280,12 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
 .page-jump-btn{min-width:56px}
 @media(min-width:768px){.pagination-dock .pagination-info{display:inline}}
 @media(max-width:767px){.pagination-dock{flex-wrap:wrap;gap:8px;padding:8px 10px;left:12px;right:12px;bottom:calc(12px + env(safe-area-inset-bottom,0px));transform:none;justify-content:center}.pagination-info{width:100%;text-align:center}.page-jump{width:100%;justify-content:center}}
+
+/* Sync page */
+.sync-status-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;padding:0 16px;margin:12px 0}
+.sync-card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px}
+.sync-card .label{color:var(--muted);font-size:12px}
+.sync-card .value{font-size:22px;font-weight:700;margin:6px 0 2px}
+.sync-card .hint{font-size:11px;color:var(--muted)}
+.sync-detail{color:var(--muted);font-size:13px;line-height:1.7}
+.sync-detail p{margin-bottom:4px}

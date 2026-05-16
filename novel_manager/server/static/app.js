@@ -1,5 +1,5 @@
-// NovelHub app.js offlinecache1
-console.log('[NovelHub] app.js offlinecache1 loaded');
+// NovelHub app.js syncui1
+console.log('[NovelHub] app.js syncui1 loaded');
 
 let state={books:[],groups:[],currentGroup:'',page:1,pageSize:35,total:0,totalPages:0,loading:false,searchQuery:'',currentPage:'shelf'};
 let offlineState={mode:'online',lastSyncTime:null,cachedBookCount:0,pendingUploadCount:0};
@@ -16,6 +16,7 @@ var authState={
 // ======== PAGE REGISTRY ========
 const PAGES={
   shelf:{id:'shelfPage',onShow:null},
+  sync:{id:'syncPage',onShow:loadSyncPage},
   upload:{id:'uploadPage',onShow:null},
   updates:{id:'updatesPage',onShow:function(){loadUpdates()}},
   operations:{id:'opsPage',onShow:function(){loadOps('')}},
@@ -189,6 +190,9 @@ function initNavigation(){
       if(action==='page-prev'&&state.page>1)goToPage(state.page-1);
       if(action==='page-next'&&state.page<state.totalPages)goToPage(state.page+1);
       if(action==='page-jump')doPageJump();
+      if(action==='sync-now'){doFullSync().then(function(){loadSyncPage();loadBooks()});return}
+      if(action==='sync-progress'){uploadPendingProgress().then(function(){loadSyncPage()});return}
+      if(action==='refresh-sync-status'){loadSyncPage();return}
       return;
     }
 
@@ -1108,18 +1112,66 @@ function updateSyncStatusUI(manifest){
 function updateDrawerStatus(){
   var el=eid('drawerStatus');
   if(!el)return;
+  var pending='';
+  if(offlineState.pendingUploadCount>0)pending=' · '+offlineState.pendingUploadCount+'待同步';
   if(offlineState.mode==='offline'){
-    el.textContent='离线缓存 | '+offlineState.cachedBookCount+'本';
+    el.innerHTML='<a href="#" data-page="sync" style="text-decoration:none;color:inherit">离线缓存</a> | '+offlineState.cachedBookCount+'本'+pending;
   }else if(syncState.online){
-    el.textContent='在线';
+    el.innerHTML='<a href="#" data-page="sync" style="text-decoration:none;color:inherit">在线</a> · 点此同步'+pending;
   }else{
-    el.textContent='离线缓存 | '+offlineState.cachedBookCount+'本';
+    el.innerHTML='<a href="#" data-page="sync" style="text-decoration:none;color:inherit">离线缓存</a> | '+offlineState.cachedBookCount+'本'+pending;
   }
 }
 
 async function countPendingProgress(){
   var all=await idbGetAll('pending_progress');
   return (all||[]).length;
+}
+
+// ======== SYNC PAGE ========
+async function refreshOfflineState(){
+  offlineState.cachedBookCount=(await idbGetMeta('cachedBookCount'))||0;
+  offlineState.lastSyncTime=await idbGetMeta('lastSyncTime');
+  offlineState.pendingUploadCount=await countPendingProgress();
+  var online=await tryConnect();
+  offlineState.mode=online?'online':'offline';
+  if(online){
+    try{
+      var m=await checkSyncManifest();
+      if(m){
+        syncState.online=true;
+        syncState.repoId=m.repo_id||'';
+        syncState.lastSyncedRevision=m.server_revision||0;
+      }
+    }catch(e){syncState.online=false}
+  }
+}
+
+async function loadSyncPage(){
+  await refreshOfflineState();
+  renderSyncPage();
+  updateDrawerStatus();
+}
+
+function renderSyncPage(){
+  var s=eid('syncStatusCards'),d=eid('syncDetail');
+  if(!s||!d)return;
+  var connStatus,connLabel,connHint;
+  if(offlineState.mode==='online'){
+    connStatus='在线';connLabel='已连接电脑端';connHint='当前已连接电脑端，可以同步最新书架。';
+  }else{
+    connStatus='离线';connLabel='使用本地缓存';connHint='当前无法连接电脑端，正在使用本地缓存。';
+    if(!offlineState.cachedBookCount)connHint='本机尚无离线书架缓存，请连接电脑端后点击立即同步。';
+  }
+  var lastSync=offlineState.lastSyncTime?offlineState.lastSyncTime.slice(0,16).replace('T',' '):'从未同步';
+  var serverRev=syncState.online?syncState.lastSyncedRevision:'无法获取';
+  s.innerHTML=
+    '<div class="sync-card"><span class="label">连接状态</span><span class="value">'+connStatus+'</span><span class="hint">'+connLabel+'</span></div>'+
+    '<div class="sync-card"><span class="label">服务器版本</span><span class="value">'+serverRev+'</span><span class="hint">repo: '+(syncState.repoId||'---')+'</span></div>'+
+    '<div class="sync-card"><span class="label">本地缓存</span><span class="value">'+offlineState.cachedBookCount+'</span><span class="hint">本</span></div>'+
+    '<div class="sync-card"><span class="label">待同步进度</span><span class="value">'+(offlineState.pendingUploadCount||0)+'</span><span class="hint">条</span></div>';
+  d.innerHTML='<p>'+connHint+'</p><p>上次同步时间：'+lastSync+'</p>';
+  if(offlineState.pendingUploadCount>0)d.innerHTML+='<p>有 '+offlineState.pendingUploadCount+' 条离线阅读进度待上传。</p>';
 }
 
 // ======== PAIRING ========

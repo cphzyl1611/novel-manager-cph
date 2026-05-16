@@ -130,20 +130,23 @@ class SmokeChecker:
         if app_js.exists():
             content = app_js.read_text(encoding="utf-8")
             self._check("app.js exists", True)
-            self._check("app.js has version header", "offlinecache1" in content[:100])
+            self._check("app.js has version header", "syncui1" in content[:100])
             self._check("app.js no onclick goToPage", 'onclick="goToPage' not in content)
             self._check("app.js has safeNumber", "function safeNumber" in content)
             self._check("app.js has buildProgressPayload", "function buildProgressPayload" in content)
             self._check("app.js has data-action page-prev", 'data-action="page-prev"' in content)
             self._check("app.js uses sort=recent_read", "sort=recent_read" in content)
             self._check("app.js has NovelHubCache IDB", "NovelHubCache" in content)
-            self._check("app.js has offline mode", "offlineState" in content)
+            self._check("app.js has offlineState", "offlineState" in content)
             self._check("app.js has cacheBooksSnapshot", "cacheBooksSnapshot" in content)
             self._check("app.js has cacheBookContent", "cacheBookContent" in content)
             self._check("app.js has pending_progress store", "pending_progress" in content)
             self._check("app.js no pending_replace", "pending_replace" not in content)
             self._check("app.js no pending_delete", "pending_delete" not in content)
             self._check("app.js no pending_upload_file", "pending_upload_file" not in content)
+            self._check("app.js has loadSyncPage", "loadSyncPage" in content)
+            self._check("app.js has renderSyncPage", "renderSyncPage" in content)
+            self._check("app.js has sync-now", "sync-now" in content)
         else:
             self._check("app.js exists", False)
 
@@ -151,7 +154,9 @@ class SmokeChecker:
             content = index_html.read_text(encoding="utf-8")
             self._check("index.html exists", True)
             self._check('index.html has shelfPagination', 'id="shelfPagination"' in content)
-            self._check("index.html uses offlinecache1", 'offlinecache1' in content)
+            self._check("index.html has syncPage", 'id="syncPage"' in content)
+            self._check("index.html has data-page sync", 'data-page="sync"' in content)
+            self._check("index.html uses syncui1", 'syncui1' in content)
         else:
             self._check("index.html exists", False)
 
@@ -159,7 +164,7 @@ class SmokeChecker:
             content = sw_js.read_text(encoding="utf-8")
             self._check("service-worker.js exists", True)
             self._check("sw.js has CACHE_NAME", "CACHE_NAME" in content)
-            self._check("sw.js has offlinecache1", "offlinecache1" in content)
+            self._check("sw.js has syncui1", "syncui1" in content)
             self._check("sw.js does not cache POST", "request.method !== 'GET'" in content)
         else:
             self._check("service-worker.js exists", False)

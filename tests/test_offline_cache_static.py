@@ -10,8 +10,8 @@ def _read(path: str) -> str:
     return (STATIC / path).read_text(encoding="utf-8")
 
 
-def test_app_js_offlinecache1_header():
-    assert "offlinecache1" in _read("app.js")[:100]
+def test_app_js_syncui1_header():
+    assert "syncui1" in _read("app.js")[:100]
 
 
 def test_app_js_has_novel_hub_cache_idb():
@@ -60,13 +60,13 @@ def test_app_js_has_upload_pending_progress():
     assert "uploadPendingProgress" in _read("app.js")
 
 
-def test_service_worker_offlinecache1():
-    assert "offlinecache1" in _read("service-worker.js")
+def test_service_worker_syncui1():
+    assert "syncui1" in _read("service-worker.js")
 
 
 def test_service_worker_no_post_cache():
     assert "request.method !== 'GET'" in _read("service-worker.js")
 
 
-def test_index_html_offlinecache1():
-    assert "offlinecache1" in _read("index.html")
+def test_index_html_syncui1():
+    assert "syncui1" in _read("index.html")

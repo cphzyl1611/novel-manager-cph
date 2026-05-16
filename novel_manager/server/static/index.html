@@ -9,7 +9,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icon-192.png">
 <title>NovelHub</title>
-<link rel="stylesheet" href="style.css?v=offlinecache1">
+<link rel="stylesheet" href="style.css?v=syncui1">
 </head>
 <body>
 <div class="topbar">
@@ -24,7 +24,8 @@
 <nav class="drawer" id="drawer">
   <h3>菜单</h3>
   <a href="#" class="nav-item active" data-page="shelf">🏠 首页</a>
-  <a href="#" class="nav-item" data-page="updates">🔄 小说更新</a>
+  <a href="#" class="nav-item" data-page="sync">🔄 同步与离线缓存</a>
+  <a href="#" class="nav-item" data-page="updates">📋 小说更新</a>
   <a href="#" class="nav-item" data-page="upload">📤 上传新书</a>
   <a href="#" class="nav-item" data-page="operations">📋 操作记录</a>
   <a href="#" class="nav-item" data-page="health">🏥 健康中心</a>
@@ -187,6 +188,19 @@
   <div id="pairedDevicesList" style="padding:0 16px"><div class="loading"><div class="spinner"></div></div></div>
 </div>
 
+<!-- Sync page -->
+<div class="settings-page" id="syncPage">
+  <h2 style="margin-bottom:4px;padding:0 16px">🔄 同步与离线缓存</h2>
+  <p class="updates-disclaimer">连接电脑端后，同步最新书架、阅读进度和本地离线缓存。</p>
+  <div class="updates-actions">
+    <button class="btn-primary" data-action="sync-now">立即同步</button>
+    <button class="btn-primary" data-action="sync-progress" style="background:#2980b9">上传待同步进度</button>
+    <button class="btn-cancel" data-action="refresh-sync-status" style="background:var(--card);border:1px solid var(--border);border-radius:8px">刷新状态</button>
+  </div>
+  <div id="syncStatusCards" style="padding:0 16px"></div>
+  <div id="syncDetail" style="padding:0 16px"></div>
+</div>
+
 <!-- Settings page -->
 <div class="settings-page" id="settingsPage">
   <h2 style="margin-bottom:4px;padding:0 16px">⚙️ 设置</h2>
@@ -202,7 +216,7 @@
     </div>
   </div>
 </div>
-<script src="app.js?v=offlinecache1"></script>
+<script src="app.js?v=syncui1"></script>
 <script>
 // Register service worker for PWA
 if ('serviceWorker' in navigator) {

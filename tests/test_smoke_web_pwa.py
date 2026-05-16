@@ -25,7 +25,7 @@ def test_static_checks_app_js_version():
     checker = SmokeChecker("http://127.0.0.1:8765", "/fake/repo")
     with tempfile.TemporaryDirectory() as td:
         (Path(td) / "app.js").write_text(
-            '// NovelHub app.js offlinecache1\nconsole.log("[NovelHub] app.js offlinecache1 loaded");\n'
+            '// NovelHub app.js syncui1\nconsole.log("[NovelHub] app.js syncui1 loaded");\n'
             'function safeNumber(v,fallback){var n=Number(v);return Number.isFinite(n)?n:fallback}\n'
             'function buildProgressPayload(pd){return{}}\n'
             ';h+=\'<button class="page-btn" data-action="page-prev">\';',
@@ -46,7 +46,7 @@ def test_static_checks_rejects_onclick_goto_page():
     checker = SmokeChecker("http://127.0.0.1:8765", "/fake/repo")
     with tempfile.TemporaryDirectory() as td:
         (Path(td) / "app.js").write_text(
-            '// NovelHub app.js offlinecache1\nconsole.log("[NovelHub] app.js offlinecache1 loaded");\n'
+            '// NovelHub app.js syncui1\nconsole.log("[NovelHub] app.js syncui1 loaded");\n'
             '<button onclick="goToPage(2)">Next Page</button>\n',
             encoding="utf-8",
         )
@@ -63,7 +63,7 @@ def test_static_checks_index_html_shelf_pagination():
     with tempfile.TemporaryDirectory() as td:
         (Path(td) / "index.html").write_text(
             '<!DOCTYPE html>\n<div id="shelfPagination" class="pagination-dock hidden"></div>\n'
-            '<script src="app.js?v=offlinecache1"></script>\n'
+            '<script src="app.js?v=syncui1"></script>\n'
         )
         import scripts.smoke_web_pwa as mod
         orig = mod.STATIC_DIR
@@ -76,7 +76,7 @@ def test_static_checks_index_html_shelf_pagination():
 def test_static_checks_service_worker():
     checker = SmokeChecker("http://127.0.0.1:8765", "/fake/repo")
     with tempfile.TemporaryDirectory() as td:
-        (Path(td) / "service-worker.js").write_text("const CACHE_NAME = 'novelhub-offlinecache1';\n")
+        (Path(td) / "service-worker.js").write_text("const CACHE_NAME = 'novelhub-syncui1';\n")
         import scripts.smoke_web_pwa as mod
         orig = mod.STATIC_DIR
         mod.STATIC_DIR = Path(td)

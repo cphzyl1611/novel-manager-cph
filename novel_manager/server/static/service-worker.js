@@ -1,7 +1,7 @@
-// NovelHub Service Worker offlinecache1
+// NovelHub Service Worker syncui1
 // Provides offline caching for PWA functionality
 
-const CACHE_NAME = 'novelhub-offlinecache1';
+const CACHE_NAME = 'novelhub-syncui1';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
