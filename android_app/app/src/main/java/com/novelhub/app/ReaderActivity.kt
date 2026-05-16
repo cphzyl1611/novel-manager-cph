@@ -105,7 +105,7 @@ class ReaderActivity : AppCompatActivity() {
             var localChs = db.getChapters(bookId)
             if (localChs.isEmpty()) { val r = ApiClient.fetchChapters(bookId); if (r.chapters.isNotEmpty()) { db.cacheChapters(bookId, r.chapters); localChs = r.chapters } }
             val titles = localChs.map { it.title }.toTypedArray()
-            if (titles.isEmpty()) { handler.post { Toast.makeText(this, "No chapters", Toast.LENGTH_SHORT).show() }; return }
+            if (titles.isEmpty()) { handler.post { Toast.makeText(this@ReaderActivity, "No chapters", Toast.LENGTH_SHORT).show() }; return@execute }
             handler.post { AlertDialog.Builder(this).setTitle("Chapters").setItems(titles) { _, i -> chapterIndex = i; pageIndex = 0; loadChapter() }.show() }
         }
     }
