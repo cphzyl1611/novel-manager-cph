@@ -115,3 +115,55 @@ def test_mobile_api_no_file_ops():
         assert book1.exists()
     finally:
         import shutil; shutil.rmtree(repo)
+
+
+def test_virtual_chapters_for_long_text():
+    repo = _make_repo()
+    try:
+        long_book = repo / "library" / "long_book.txt"
+        content_parts = []
+        for i in range(200):
+            content_parts.append("Paragraph " + str(i) + ". " + "Hello world. " * 30)
+        content = "\n\n".join(content_parts)
+        long_book.write_text(content, encoding="utf-8")
+        import sqlite3
+        dbp = repo / "db" / "novel_repo.sqlite"
+        conn = sqlite3.connect(str(dbp)); conn.row_factory = sqlite3.Row
+        conn.execute("INSERT INTO books (id, current_path, title_raw, title_norm, author_norm, repo_area, status, chapter_count, file_name) VALUES (?,?,?,?,?,?,?,?,?)",
+            (99, str(long_book), "Long", "Long", "X", "library", None, 0, "long_book.txt"))
+        conn.commit(); conn.close()
+
+        from novel_manager.server.services.mobile_service import get_mobile_chapters, get_mobile_chapter_content
+        chs = get_mobile_chapters(str(repo), 99)
+        assert chs is not None
+        assert len(chs["chapters"]) > 1
+        assert chs["note"] == "virtual"
+
+        c0 = get_mobile_chapter_content(str(repo), 99, 0)
+        assert c0 is not None and len(c0["content"]) > 0
+        assert len(c0["content"]) < len(content)
+        assert c0["next"] == 1
+
+        c1 = get_mobile_chapter_content(str(repo), 99, 1)
+        assert c1 is not None and len(c1["content"]) > 0
+        assert c1["prev"] == 0
+
+        combined = ""
+        for i in range(len(chs["chapters"])):
+            cc = get_mobile_chapter_content(str(repo), 99, i)
+            combined += cc["content"]
+        # Virtual chapters cover full content (allow encoding normalization differences)
+        assert len(combined) >= len(content) * 0.99
+        assert len(chs["chapters"]) > 1
+    finally:
+        import shutil; shutil.rmtree(repo)
+
+
+def test_chapter_content_not_empty():
+    repo = _make_repo()
+    try:
+        from novel_manager.server.services.mobile_service import get_mobile_chapter_content
+        result = get_mobile_chapter_content(str(repo), 1, 0)
+        assert result is not None and len(result["content"]) > 0
+    finally:
+        import shutil; shutil.rmtree(repo)

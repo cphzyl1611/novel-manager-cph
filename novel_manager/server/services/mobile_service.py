@@ -8,6 +8,8 @@ from ...db import connect as db_connect
 from .book_service import _is_current_library_book, _ensure_progress_table
 from .progress_service import save_progress
 
+VIRTUAL_CHAPTER_SIZE = 40000  # chars per virtual chapter when no real chapters exist
+
 
 def get_mobile_books(repo_path: str) -> dict[str, Any]:
     """Return valid library books for mobile shelf."""
@@ -61,13 +63,13 @@ def get_mobile_books(repo_path: str) -> dict[str, Any]:
 
 
 def get_mobile_chapters(repo_path: str, book_id: int) -> dict[str, Any] | None:
-    """Return chapter list for a book."""
+    """Return chapter list for a book. Creates virtual chapters for books without real ones."""
     root = Path(repo_path).expanduser().resolve()
     try: conn = db_connect(root)
     except Exception: return None
     try:
         book = conn.execute(
-            "SELECT id, title_norm, current_path, chapter_count FROM books WHERE id=?", (book_id,)
+            "SELECT id, title_norm, current_path FROM books WHERE id=?", (book_id,)
         ).fetchone()
         if not book: conn.close(); return None
 
@@ -75,33 +77,54 @@ def get_mobile_chapters(repo_path: str, book_id: int) -> dict[str, Any] | None:
             "SELECT chapter_index, title_raw, start_offset, end_offset, char_count "
             "FROM chapters WHERE book_id=? ORDER BY chapter_index", (book_id,)
         ).fetchall()
-
-        chapters = []
-        for r in rows:
-            chapters.append({"index": r["chapter_index"],
-                             "title": r["title_raw"] or f"Chapter {r['chapter_index']+1}",
-                             "char_count": r["char_count"] or 0})
-
-        if not chapters and book["current_path"]:
-            try:
-                from ...chapter_parser import parse_chapters
-                content = Path(book["current_path"]).read_text(encoding="utf-8", errors="replace")
-                parsed = parse_chapters(content)
-                if parsed.chapters:
-                    chapters = [{"index": i, "title": c["title_raw"], "char_count": 0}
-                                for i, c in enumerate(parsed.chapters)]
-            except Exception: pass
-
         conn.close()
+
+        if rows:
+            chapters = [{"index": r["chapter_index"],
+                         "title": r["title_raw"] or f"Chapter {r['chapter_index']+1}",
+                         "char_count": r["char_count"] or 0} for r in rows]
+            return {"book_id": book_id, "title": book["title_norm"] or "",
+                    "chapters": chapters, "note": None}
+
+        # No real chapters — try parsing or create virtual chapters
+        book_path = book["current_path"]
+        if not book_path or not Path(book_path).exists():
+            return {"book_id": book_id, "title": book["title_norm"] or "",
+                    "chapters": [], "note": "file_missing"}
+
+        try:
+            from ...chapter_parser import parse_chapters
+            content = Path(book_path).read_text(encoding="utf-8", errors="replace")
+            parsed = parse_chapters(content)
+            if parsed.chapters:
+                chapters = [{"index": i, "title": c["title_raw"], "char_count": 0}
+                            for i, c in enumerate(parsed.chapters)]
+                return {"book_id": book_id, "title": book["title_norm"] or "",
+                        "chapters": chapters, "note": "parsed"}
+        except Exception: pass
+
+        # No chapters found — create virtual chapters
+        fc = _read_full_with_encoding(book_path); content = fc[0] if fc else ""
+        total_len = len(content)
+        if total_len == 0:
+            return {"book_id": book_id, "title": book["title_norm"] or "",
+                    "chapters": [], "note": "empty"}
+
+        vc_count = max(1, (total_len + VIRTUAL_CHAPTER_SIZE - 1) // VIRTUAL_CHAPTER_SIZE)
+        chapters = [{"index": i, "title": f"Part {i+1}",
+                     "char_count": VIRTUAL_CHAPTER_SIZE} for i in range(vc_count)]
         return {"book_id": book_id, "title": book["title_norm"] or "",
-                "chapters": chapters, "note": "single_chapter" if not chapters else None}
+                "chapters": chapters, "note": "virtual",
+                "total_chars": total_len}
     except Exception:
-        conn.close(); return None
+        try: conn.close()
+        except Exception: pass
+        return None
 
 
 def get_mobile_chapter_content(repo_path: str, book_id: int,
                                 chapter_index: int) -> dict[str, Any] | None:
-    """Return single chapter content. Never returns full book."""
+    """Return single chapter content. Never returns truncated full book."""
     root = Path(repo_path).expanduser().resolve()
     try: conn = db_connect(root)
     except Exception: return None
@@ -122,54 +145,104 @@ def get_mobile_chapter_content(repo_path: str, book_id: int,
             "FROM chapters WHERE book_id=? ORDER BY chapter_index", (book_id,)
         ).fetchall()
         chapters = [dict(r) for r in ch_rows]
-        total = len(chapters)
         conn.close()
 
-        ch = _extract_chapter(book_path, chapter_index, chapters, total)
-        prev_idx = chapter_index - 1 if chapter_index > 0 else None
-        next_idx = chapter_index + 1 if chapter_index + 1 < max(total, 1) else None
+        if chapters and chapter_index < len(chapters):
+            ch = _extract_real_chapter(book_path, chapter_index, chapters)
+            prev_idx = chapter_index - 1 if chapter_index > 0 else None
+            next_idx = chapter_index + 1 if chapter_index + 1 < len(chapters) else None
+            total = len(chapters)
+            note = None
+        else:
+            # Virtual chapter from full content
+            ch = _extract_virtual_chapter(book_path, chapter_index)
+            total = _virtual_chapter_count(book_path)
+            prev_idx = chapter_index - 1 if chapter_index > 0 else None
+            next_idx = chapter_index + 1 if chapter_index + 1 < total else None
+            note = "virtual"
+
+        if ch is None:
+            return {"book_id": book_id, "chapter_index": chapter_index,
+                    "title": "", "content": "", "error": "extract_failed",
+                    "prev": prev_idx, "next": next_idx, "total_chapters": total}
 
         return {"book_id": book_id, "chapter_index": chapter_index,
-                "title": ch.get("title", "") if ch else "",
-                "content": ch.get("content", "") if ch else "",
-                "encoding": ch.get("encoding", "") if ch else "",
-                "prev": prev_idx, "next": next_idx,
-                "total_chapters": max(total, 1),
-                "single_chapter": total == 0}
+                "title": ch.get("title", ""), "content": ch.get("content", ""),
+                "encoding": ch.get("encoding", ""), "prev": prev_idx, "next": next_idx,
+                "total_chapters": total, "note": note}
     except Exception:
         try: conn.close()
         except Exception: pass
         return None
 
 
-def _extract_chapter(file_path: str, idx: int, chapters: list[dict], total: int) -> dict | None:
-    """Extract one chapter by byte offset from TXT."""
+def _extract_real_chapter(file_path: str, idx: int, chapters: list[dict]) -> dict | None:
+    """Extract one real chapter by byte offset."""
     try:
-        from .text_reader import read_text_safely
-
-        if total == 0:
-            # No chapters — read file, return a per-call chunk to avoid full book
-            result = read_text_safely(Path(file_path), max_bytes=2000000)
-            content = result["text"]
-            encoding = result.get("encoding", "")
-            seg_size = 50000
-            start_off = idx * seg_size
-            chunk = content[start_off:start_off + seg_size]
-            return {"title": f"Part {idx + 1}", "content": chunk, "encoding": encoding}
-
         ch = chapters[idx]
         start = ch["start_offset"]
         end = ch.get("end_offset")
 
         with open(file_path, "rb") as f:
             f.seek(start)
-            chunk_size = (end - start) if (end and end > start) else 2000000
-            raw = f.read(min(chunk_size, 2000000))
+            if end and end > start:
+                raw = f.read(end - start)
+            else:
+                # Last chapter or no end_offset — read reasonable max
+                raw = f.read(2000000)
 
-        result = read_text_safely(Path(file_path), max_bytes=2000000)
+        from .text_reader import read_text_safely
+        result = read_text_safely(Path(file_path), max_bytes=None)
         encoding = result.get("encoding", "")
         content = raw.decode(encoding or "utf-8", errors="replace")
         return {"title": ch.get("title_raw", ""), "content": content, "encoding": encoding}
+    except Exception:
+        return None
+
+
+def _read_full_with_encoding(file_path: str) -> tuple[str, str] | None:
+    """Read entire file and detect encoding."""
+    try:
+        from charset_normalizer import from_path
+        results = from_path(file_path)
+        if results:
+            best = results.best()
+            if best:
+                return str(best), best.encoding or "utf-8"
+        # Fallback: try utf-8
+        content = Path(file_path).read_text(encoding="utf-8", errors="replace")
+        return content, "utf-8"
+    except Exception:
+        try:
+            content = Path(file_path).read_text(encoding="utf-8", errors="replace")
+            return content, "utf-8"
+        except Exception:
+            return None
+
+
+def _virtual_chapter_count(file_path: str) -> int:
+    """Count virtual chapters for a file."""
+    try:
+        result = _read_full_with_encoding(file_path)
+        if not result: return 1
+        content, _ = result
+        return max(1, (len(content) + VIRTUAL_CHAPTER_SIZE - 1) // VIRTUAL_CHAPTER_SIZE)
+    except Exception:
+        return 1
+
+
+def _extract_virtual_chapter(file_path: str, idx: int) -> dict | None:
+    """Extract a virtual chapter slice from full file content."""
+    try:
+        result = _read_full_with_encoding(file_path)
+        if not result: return None
+        content, encoding = result
+        start = idx * VIRTUAL_CHAPTER_SIZE
+        end = start + VIRTUAL_CHAPTER_SIZE
+        chunk = content[start:end]
+        if not chunk:
+            return None
+        return {"title": f"Part {idx + 1}", "content": chunk, "encoding": encoding}
     except Exception:
         return None
 

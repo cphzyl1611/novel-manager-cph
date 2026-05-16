@@ -105,9 +105,10 @@ def test_main_activity_has_clear_cache():
     assert "Clear Cache" in content or "deleteDatabase" in content
 
 
-def test_reader_has_back_key_handling():
+def test_reader_has_paged_navigation():
     content = (ANDROID_APP / "app" / "src" / "main" / "java" / "com" / "novelhub" / "app" / "ReaderActivity.kt").read_text(encoding="utf-8")
-    assert "onBackPressed" in content
+    assert "nextPage" in content
+    assert "prevPage" in content
 
 
 def test_server_layout_has_error_text():
@@ -170,8 +171,8 @@ def test_web_debug_activity_exists_or_webview_removed():
 def test_reader_activity_uses_textview_not_webview():
     content = (ANDROID_APP / "app" / "src" / "main" / "java" / "com" / "novelhub" / "app" / "ReaderActivity.kt").read_text(encoding="utf-8")
     assert "TextView" in content
-    assert "ScrollView" in content
     assert "WebView" not in content
+    assert "paginateText" in content
 
 
 def test_main_activity_no_webview():

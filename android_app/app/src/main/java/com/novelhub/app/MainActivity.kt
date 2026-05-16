@@ -25,6 +25,8 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         db = LocalDbHelper(this)
+        ApiClient.init(this)
+        title = "NovelHub"
 
         val scroll = ScrollView(this)
         shelfLayout = LinearLayout(this).apply {
@@ -34,131 +36,92 @@ class MainActivity : AppCompatActivity() {
         scroll.addView(shelfLayout)
         setContentView(scroll)
 
-        ApiClient.init(this)
-        title = "NovelHub"
-
-        val url = ApiClient.getServerUrl()
-        if (url.isEmpty()) {
-            startActivity(Intent(this, ServerConfigActivity::class.java))
-            finish()
-            return
-        }
-        loadShelf()
+        loadLocalShelf()
     }
 
-    private fun loadShelf() {
+    private fun loadLocalShelf() {
         shelfLayout.removeAllViews()
 
-        // Header buttons
-        val toolbar = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            setPadding(0, 0, 0, 12)
-        }
-        val syncBtn = Button(this).apply {
-            text = "Sync"
-            setOnClickListener { loadShelf() }
-        }
-        val serverBtn = Button(this).apply {
+        // Toolbar: Sync + Server buttons
+        val toolbar = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, 0, 0, 12) }
+        toolbar.addView(Button(this).apply { text = "Sync"; setOnClickListener { doSync() } })
+        toolbar.addView(Button(this).apply {
             text = "Server"
-            setOnClickListener {
-                startActivity(Intent(this@MainActivity, ServerConfigActivity::class.java))
-                finish()
-            }
-        }
-        toolbar.addView(syncBtn)
-        toolbar.addView(serverBtn)
+            setOnClickListener { startActivity(Intent(this@MainActivity, ServerConfigActivity::class.java)) }
+        })
         shelfLayout.addView(toolbar)
 
-        val label = TextView(this).apply {
-            text = "Loading..."
-            setPadding(8, 16, 8, 8)
+        executor.execute {
+            books = db.getAllBooks()
+            runOnUiThread { renderShelf(toolbar) }
         }
-        shelfLayout.addView(label)
+    }
 
+    private fun renderShelf(toolbar: LinearLayout) {
+        shelfLayout.removeAllViews()
+        shelfLayout.addView(toolbar)
+
+        if (books.isEmpty()) {
+            val tv = TextView(this).apply {
+                text = "No books yet." + "\n" + "Tap Sync to connect to your PC server."
+                setPadding(16, 48, 16, 16)
+                textSize = 15f
+            }
+            shelfLayout.addView(tv)
+        } else {
+            for (b in books) {
+                val info = b.title + "\n" + b.author + " | " + b.chapterCount + " ch"
+                val card = TextView(this).apply {
+                    text = info; setPadding(16, 14, 16, 14); textSize = 16f
+                    setBackgroundColor(0xFFFFFFFF.toInt())
+                    setOnClickListener {
+                        val intent = Intent(this@MainActivity, ReaderActivity::class.java)
+                        intent.putExtra("book_id", b.id)
+                        intent.putExtra("title", b.title)
+                        startActivity(intent)
+                    }
+                }
+                val params = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+                params.setMargins(0, 0, 0, 8)
+                shelfLayout.addView(card, params)
+            }
+        }
+    }
+
+    private fun doSync() {
+        if (!ApiClient.hasServerUrl()) {
+            Toast.makeText(this, "Set server address first", Toast.LENGTH_SHORT).show()
+            startActivity(Intent(this, ServerConfigActivity::class.java))
+            return
+        }
+        Toast.makeText(this, "Syncing...", Toast.LENGTH_SHORT).show()
         executor.execute {
             val resp = ApiClient.fetchBooks()
             if (resp.items.isNotEmpty()) {
                 db.upsertBooks(resp.items)
-            }
-            val localBooks = db.getAllBooks()
-            books = localBooks
-
-            runOnUiThread {
-                shelfLayout.removeAllViews()
-                shelfLayout.addView(toolbar)
-
-                if (books.isEmpty()) {
-                    shelfLayout.addView(TextView(this).apply {
-                        text = "No books. Tap Sync to connect to server."
-                        setPadding(16, 48, 16, 16)
-                    })
-                } else {
-                    for (b in books) {
-                        val info = buildString {
-                            append(b.title)
-                            append("\n")
-                            if (b.author.isNotEmpty()) {
-                                append(b.author)
-                                append(" | ")
-                            }
-                            append(b.chapterCount)
-                            append(" ch")
-                        }
-                        val card = TextView(this).apply {
-                            text = info
-                            setPadding(16, 14, 16, 14)
-                            textSize = 16f
-                            setBackgroundColor(0xFFFFFFFF.toInt())
-                            setOnClickListener { openBook(b) }
-                        }
-                        val params = LinearLayout.LayoutParams(
-                            LinearLayout.LayoutParams.MATCH_PARENT,
-                            LinearLayout.LayoutParams.WRAP_CONTENT
-                        )
-                        params.setMargins(0, 0, 0, 8)
-                        shelfLayout.addView(card, params)
-                    }
-                }
+                books = db.getAllBooks()
+                runOnUiThread { renderShelf(shelfLayout.getChildAt(0) as LinearLayout) }
+                runOnUiThread { Toast.makeText(this, resp.items.size.toString() + " books synced", Toast.LENGTH_SHORT).show() }
+            } else {
+                runOnUiThread { Toast.makeText(this, "Sync failed or no books", Toast.LENGTH_SHORT).show() }
             }
         }
-    }
-
-    private fun openBook(book: Book) {
-        val intent = Intent(this, ReaderActivity::class.java).apply {
-            putExtra("book_id", book.id)
-            putExtra("title", book.title)
-        }
-        startActivity(intent)
     }
 
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
         menu.add(0, 1, 0, "Sync")
-        menu.add(0, 2, 0, "Change Server")
+        menu.add(0, 2, 0, "Server Config")
         menu.add(0, 3, 0, "Clear Cache")
-        menu.add(0, 4, 0, "About")
         return true
     }
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
         when (item.itemId) {
-            1 -> {
-                Toast.makeText(this, "Syncing...", Toast.LENGTH_SHORT).show()
-                loadShelf()
-            }
-            2 -> {
-                startActivity(Intent(this, ServerConfigActivity::class.java))
-                finish()
-            }
-            3 -> {
-                deleteDatabase("novelhub_cache")
-                db = LocalDbHelper(this)
-                loadShelf()
-                Toast.makeText(this, "Cache cleared", Toast.LENGTH_SHORT).show()
-            }
-            4 -> AlertDialog.Builder(this)
-                .setTitle("NovelHub")
-                .setMessage("Native Android Reader v1." + "\n" + "Connect to LAN server to sync.")
-                .setPositiveButton("OK", null).show()
+            1 -> doSync()
+            2 -> startActivity(Intent(this, ServerConfigActivity::class.java))
+            3 -> { db.clearCache(); loadLocalShelf(); Toast.makeText(this, "Cache cleared", Toast.LENGTH_SHORT).show() }
         }
         return true
     }
