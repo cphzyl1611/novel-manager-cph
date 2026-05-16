@@ -8,14 +8,14 @@
         android:icon="@drawable/ic_launcher"
         android:usesCleartextTraffic="true"
         android:theme="@style/Theme.NovelHub">
-        <activity
-            android:name=".MainActivity"
-            android:configChanges="orientation|screenSize"
-            android:exported="true">
+        <activity android:name=".MainActivity" android:configChanges="orientation|screenSize" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <activity android:name=".ReaderActivity" android:configChanges="orientation|screenSize" />
+        <activity android:name=".ServerConfigActivity" />
+        <activity android:name=".WebDebugActivity" />
     </application>
 </manifest>

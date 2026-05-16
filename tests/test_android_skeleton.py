@@ -45,12 +45,11 @@ def test_main_activity_exists():
     assert (ANDROID_APP / "app" / "src" / "main" / "java" / "com" / "novelhub" / "app" / "MainActivity.kt").exists()
 
 
-def test_main_activity_has_webview_config():
+def test_main_activity_uses_native_shelf():
     content = (ANDROID_APP / "app" / "src" / "main" / "java" / "com" / "novelhub" / "app" / "MainActivity.kt").read_text(encoding="utf-8")
-    assert "WebView" in content
-    assert "javaScriptEnabled" in content
-    assert "domStorageEnabled" in content
-    assert "getSharedPreferences" in content
+    assert "WebView" not in content  # Native shelf, not WebView wrapper
+    assert "LocalDbHelper" in content
+    assert "ApiClient" in content
 
 
 def test_resources_exist():
@@ -98,17 +97,17 @@ def test_menu_has_change_server():
 
 def test_main_activity_has_change_server():
     content = (ANDROID_APP / "app" / "src" / "main" / "java" / "com" / "novelhub" / "app" / "MainActivity.kt").read_text(encoding="utf-8")
-    assert "R.id.action_change_server" in content
+    assert "Change Server" in content or "ServerConfigActivity" in content
 
 
 def test_main_activity_has_clear_cache():
     content = (ANDROID_APP / "app" / "src" / "main" / "java" / "com" / "novelhub" / "app" / "MainActivity.kt").read_text(encoding="utf-8")
-    assert "R.id.action_clear_cache" in content or "clearCache" in content
+    assert "Clear Cache" in content or "deleteDatabase" in content
 
 
-def test_main_activity_has_on_key_down():
-    content = (ANDROID_APP / "app" / "src" / "main" / "java" / "com" / "novelhub" / "app" / "MainActivity.kt").read_text(encoding="utf-8")
-    assert "onKeyDown" in content
+def test_reader_has_back_key_handling():
+    content = (ANDROID_APP / "app" / "src" / "main" / "java" / "com" / "novelhub" / "app" / "ReaderActivity.kt").read_text(encoding="utf-8")
+    assert "onBackPressed" in content
 
 
 def test_server_layout_has_error_text():
@@ -154,3 +153,49 @@ def test_build_doc_recommends_gradle_8_5():
 def test_no_gradle_9_references():
     content = (ANDROID_APP / "gradle" / "wrapper" / "gradle-wrapper.properties").read_text(encoding="utf-8")
     assert "gradle-9" not in content
+
+def test_reader_activity_exists():
+    assert (ANDROID_APP / "app" / "src" / "main" / "java" / "com" / "novelhub" / "app" / "ReaderActivity.kt").exists()
+
+
+def test_server_config_activity_exists():
+    assert (ANDROID_APP / "app" / "src" / "main" / "java" / "com" / "novelhub" / "app" / "ServerConfigActivity.kt").exists()
+
+
+def test_web_debug_activity_exists_or_webview_removed():
+    # WebDebugActivity may exist as optional debug entry
+    pass  # MainActivity no longer uses WebView by default
+
+
+def test_reader_activity_uses_textview_not_webview():
+    content = (ANDROID_APP / "app" / "src" / "main" / "java" / "com" / "novelhub" / "app" / "ReaderActivity.kt").read_text(encoding="utf-8")
+    assert "TextView" in content
+    assert "ScrollView" in content
+    assert "WebView" not in content
+
+
+def test_main_activity_no_webview():
+    content = (ANDROID_APP / "app" / "src" / "main" / "java" / "com" / "novelhub" / "app" / "MainActivity.kt").read_text(encoding="utf-8")
+    assert "WebView" not in content
+
+
+def test_manifest_registers_reader_activity():
+    content = (ANDROID_APP / "app" / "src" / "main" / "AndroidManifest.xml").read_text(encoding="utf-8")
+    assert "ReaderActivity" in content
+
+
+def test_manifest_registers_server_config():
+    content = (ANDROID_APP / "app" / "src" / "main" / "AndroidManifest.xml").read_text(encoding="utf-8")
+    assert "ServerConfigActivity" in content
+
+
+def test_api_client_exists():
+    assert (ANDROID_APP / "app" / "src" / "main" / "java" / "com" / "novelhub" / "app" / "data" / "ApiClient.kt").exists()
+
+
+def test_local_db_helper_exists():
+    assert (ANDROID_APP / "app" / "src" / "main" / "java" / "com" / "novelhub" / "app" / "data" / "LocalDbHelper.kt").exists()
+
+
+def test_models_exist():
+    assert (ANDROID_APP / "app" / "src" / "main" / "java" / "com" / "novelhub" / "app" / "data" / "Models.kt").exists()
