@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:gravity="center"
+    android:padding="32dp">
+    <TextView android:text="NovelHub" android:textSize="28sp" android:textStyle="bold"
+        android:layout_marginBottom="16dp" android:layout_width="wrap_content" android:layout_height="wrap_content" />
+    <TextView android:text="Enter LAN server address" android:textSize="14sp" android:textColor="#888"
+        android:layout_marginBottom="16dp" android:layout_width="wrap_content" android:layout_height="wrap_content" />
+    <EditText android:id="@+id/serverInput" android:hint="http://192.168.1.100:8765"
+        android:inputType="textUri" android:layout_marginBottom="16dp"
+        android:layout_width="match_parent" android:layout_height="wrap_content" />
+    <Button android:id="@+id/btnConnect" android:text="Connect"
+        android:layout_width="match_parent" android:layout_height="wrap_content" />
+    <Button android:id="@+id/btnRetry" android:text="Retry" android:visibility="gone"
+        android:layout_width="match_parent" android:layout_height="wrap_content" />
+</LinearLayout>
