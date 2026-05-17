@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from .api import books, groups, health, incoming, issues, mobile, operations, pairing, repo, sync, updates
+from .api import books, groups, health, incoming, issues, legado, mobile, operations, pairing, repo, sync, updates
 from .auth_middleware import AuthMiddleware
 from .config import APP_NAME, APP_VERSION
 
@@ -36,6 +36,7 @@ def create_app(repo_path: str) -> FastAPI:
     app.include_router(updates.router)
     app.include_router(sync.router)
     app.include_router(incoming.router)
+    app.include_router(legado.router)
     app.include_router(mobile.router)
     app.include_router(operations.router)
 
