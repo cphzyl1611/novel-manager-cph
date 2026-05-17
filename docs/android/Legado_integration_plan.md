@@ -48,11 +48,22 @@ novel_manager/         # Python server (unchanged)
 
 - **Cloned**: Successfully at `android_legado/legado`
 - **gradlew.bat**: Exists
-- **JDK**: NOT FOUND in current environment
-- **Android SDK**: NOT SET
-- **Build**: NOT attempted
-
-Required: JDK 17+, Android SDK Platform 34+, Kotlin 1.9.22, AGP 8.2.2.
+- **JDK**: Java 25 detected (major version 69) — TOO NEW
+- **Android SDK**: Available in user environment
+- **Build**: Failed with `Unsupported class file major version 69`
+  - Root cause: Java 25 is incompatible with Gradle 8.x. Gradle 8.x supports JDK 17-21.
+  - This is NOT a Legado code issue — it's a JDK version mismatch.
+- Required: JDK 17 or JDK 21 (not 25)
+- PowerShell fix:
+  ```powershell
+  $env:JAVA_HOME = "D:\Java\jdk-17"
+  $env:Path = "$env:JAVA_HOME\bin;$env:Path"
+  java -version
+  cd android_legado\legado
+  .\gradlew.bat --stop
+  .\gradlew.bat assembleDebug --stacktrace
+  ```
+- After switching to JDK 17/21, `assembleDebug` is expected to succeed.
 
 ## 6. Key module map
 
@@ -139,7 +150,146 @@ Existing `/api/mobile/*` endpoints are sufficient.
 - Auth token storage in Legado sandbox model
 - Network timeout on slow LAN
 
-## 14. Next executable tasks
+## 14. Phase A API Design — NovelHub as Legado BookSource
+
+### Design rationale
+
+Legado's book source engine supports JSONPath rules for parsing structured API responses.
+NovelHub already returns clean JSON from `/api/mobile/*`. Instead of modifying Legado,
+we create a thin `/api/legado/*` adapter that repackages existing data into the format
+Legado's JSONPath rules expect.
+
+### API endpoints
+
+All endpoints live under `/api/legado/`. No auth required (LAN-only, same as Web/PWA).
+
+```
+GET  /api/legado/source              → BookSource JSON (importable in Legado)
+POST /api/legado/search              → search results in Legado format
+GET  /api/legado/book-info           → single book detail
+GET  /api/legado/toc                 → chapter list
+GET  /api/legado/content             → chapter content text
+```
+
+### 14.1 GET /api/legado/source
+
+Returns a Legado-compatible BookSource JSON. User imports this URL in Legado:
+Book Sources → Import → URL → `http://192.168.1.x:8765/api/legado/source`
+
+```json
+{
+  "bookSourceUrl": "http://SERVER/api/legado",
+  "bookSourceName": "NovelHub",
+  "bookSourceGroup": "局域网",
+  "bookSourceType": 0,
+  "bookSourceComment": "电脑端 NovelHub 书库",
+  "enabled": true,
+  "ruleSearch": {
+    "searchUrl": "http://SERVER/api/legado/search?key={{key}}&page={{page}}",
+    "bookList": "$.items[*]",
+    "name": "$.title",
+    "author": "$.author",
+    "kind": "$.chapter_count",
+    "lastChapter": "$.latest_read_at",
+    "bookUrl": "$.book_id",
+    "coverUrl": ""
+  },
+  "ruleBookInfo": {
+    "name": "$.title",
+    "author": "$.author",
+    "coverUrl": "",
+    "intro": "$.description",
+    "tocUrl": "$.book_id"
+  },
+  "ruleToc": {
+    "chapterList": "$.chapters[*]",
+    "chapterName": "$.title",
+    "chapterUrl": "$.index"
+  },
+  "ruleContent": {
+    "content": "$.content"
+  }
+}
+```
+
+Legado replaces `{{key}}` and `{{page}}` with user input, and resolves `SERVER` from
+the book source URL. JSONPath rules (`$.items[*]`, `$.title`, etc.) map API response
+fields to Legado's internal book model.
+
+### 14.2 POST /api/legado/search
+
+Body: `key=search-term&page=1`
+
+Response:
+```json
+{
+  "items": [
+    {"book_id": 1, "title": "书名", "author": "作者", "chapter_count": 120, "latest_read_at": null}
+  ]
+}
+```
+
+Backend: queries `books` table with `LIKE` on title/author, same as `/api/mobile/books?q=...`.
+
+### 14.3 GET /api/legado/book-info?url=BOOK_ID
+
+Response:
+```json
+{
+  "book_id": 1,
+  "title": "书名",
+  "author": "作者",
+  "chapter_count": 120,
+  "description": "120章 · 85分",
+  "latest_read_at": null
+}
+```
+
+### 14.4 GET /api/legado/toc?url=BOOK_ID
+
+Response:
+```json
+{
+  "book_id": 1,
+  "chapters": [
+    {"index": 0, "title": "第一章", "char_count": 3456},
+    {"index": 1, "title": "第二章", "char_count": 2890}
+  ]
+}
+```
+
+### 14.5 GET /api/legado/content?url=BOOK_ID&index=CHAPTER_INDEX
+
+Response (raw text, not JSON wrapper — Legado's ruleContent extracts `$.content` from JSON,
+or returns the full response body as content if no JSONPath match):
+
+```json
+{
+  "book_id": 1,
+  "chapter_index": 0,
+  "title": "第一章",
+  "content": "第一章的全部正文内容...",
+  "encoding": "utf-8"
+}
+```
+
+Backend: same as `/api/mobile/books/{id}/chapters/{idx}`.
+
+### 14.6 Implementation plan
+
+All endpoints are thin wrappers around existing `mobile_service.py` functions:
+
+| New endpoint | Maps to |
+|-------------|---------|
+| `/api/legado/search` | `get_mobile_books(repo, q=key)` + format as search result |
+| `/api/legado/book-info` | `get_mobile_books(repo)` filtered to one book |
+| `/api/legado/toc` | `get_mobile_chapters(repo, book_id)` |
+| `/api/legado/content` | `get_mobile_chapter_content(repo, book_id, chapter_index)` |
+| `/api/legado/source` | Static JSON with `SERVER` placeholder (replaced at runtime by Legado) |
+
+Estimated effort: 1-2 hours.
+
+## 15. Next executable tasks
 
 1. User builds Legado to verify environment
 2. Create NovelHub BookSource JSON
