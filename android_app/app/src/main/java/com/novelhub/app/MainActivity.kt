@@ -34,6 +34,13 @@ class MainActivity : AppCompatActivity() {
         }
         scroll.addView(shelfLayout)
         setContentView(scroll)
+        // Show last crash if exists
+        val crashType = getSharedPreferences("novelhub", MODE_PRIVATE).getString("last_crash_type", null)
+        if (crashType != null) {
+            val msg = getSharedPreferences("novelhub", MODE_PRIVATE).getString("last_crash_msg", "") ?: ""
+            Toast.makeText(this, "上次异常: $crashType — $msg", Toast.LENGTH_LONG).show()
+            getSharedPreferences("novelhub", MODE_PRIVATE).edit().remove("last_crash_type").apply()
+        }
         loadLocalShelf()
     }
 

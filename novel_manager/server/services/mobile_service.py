@@ -166,10 +166,15 @@ def get_mobile_chapter_content(repo_path: str, book_id: int,
                     "title": "", "content": "", "error": "extract_failed",
                     "prev": prev_idx, "next": next_idx, "total_chapters": total}
 
+        content_text = ch.get("content", "") if ch else ""
         return {"book_id": book_id, "chapter_index": chapter_index,
-                "title": ch.get("title", ""), "content": ch.get("content", ""),
-                "encoding": ch.get("encoding", ""), "prev": prev_idx, "next": next_idx,
-                "total_chapters": total, "note": note}
+                "title": ch.get("title", "") if ch else "", "content": content_text,
+                "content_length": len(content_text),
+                "encoding": ch.get("encoding", "") if ch else "",
+                "prev": prev_idx, "next": next_idx, "total_chapters": total,
+                "note": note,
+                "start_char": ch.get("start_char") if ch else None,
+                "end_char": ch.get("end_char") if ch else None}
     except Exception:
         try: conn.close()
         except Exception: pass
@@ -177,25 +182,32 @@ def get_mobile_chapter_content(repo_path: str, book_id: int,
 
 
 def _extract_real_chapter(file_path: str, idx: int, chapters: list[dict]) -> dict | None:
-    """Extract one real chapter by byte offset."""
+    """Extract one real chapter by byte offset. Last chapter reads to file end for encoding."""
     try:
         ch = chapters[idx]
         start = ch["start_offset"]
         end = ch.get("end_offset")
+        # If next chapter exists, use its start_offset as end boundary
+        if not end and idx + 1 < len(chapters):
+            end = chapters[idx + 1].get("start_offset")
 
         with open(file_path, "rb") as f:
             f.seek(start)
             if end and end > start:
                 raw = f.read(end - start)
             else:
-                # Last chapter or no end_offset — read reasonable max
-                raw = f.read(2000000)
+                raw = f.read()  # Last chapter: read to file end
 
+        # Detect encoding: read a small portion for detection
         from .text_reader import read_text_safely
         result = read_text_safely(Path(file_path), max_bytes=None)
         encoding = result.get("encoding", "")
-        content = raw.decode(encoding or "utf-8", errors="replace")
-        return {"title": ch.get("title_raw", ""), "content": content, "encoding": encoding}
+        try:
+            content = raw.decode(encoding or "utf-8", errors="replace")
+        except Exception:
+            content = raw.decode("utf-8", errors="replace")
+        return {"title": ch.get("title_raw", ""), "content": content,
+                "encoding": encoding, "start_char": None, "end_char": None}
     except Exception:
         return None
 
@@ -242,7 +254,8 @@ def _extract_virtual_chapter(file_path: str, idx: int) -> dict | None:
         chunk = content[start:end]
         if not chunk:
             return None
-        return {"title": f"Part {idx + 1}", "content": chunk, "encoding": encoding}
+        return {"title": f"Part {idx + 1}", "content": chunk, "encoding": encoding,
+                "start_char": start, "end_char": end}
     except Exception:
         return None
 

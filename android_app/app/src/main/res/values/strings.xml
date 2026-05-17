@@ -29,4 +29,5 @@
     <string name="about_title">关于</string>
     <string name="about_msg">NovelHub 原生阅读器 v1\n连接电脑端服务器同步书库。\n电脑端仍是唯一权威仓库。</string>
     <string name="ok">确定</string>
+    <string name="back">返回</string>
 </resources>
