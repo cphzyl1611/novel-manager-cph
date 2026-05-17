@@ -92,7 +92,7 @@ class ReaderActivity : AppCompatActivity() {
                     if (Math.abs(dx) > SWIPE_THRESHOLD || Math.abs(dy) > SWIPE_THRESHOLD) {
                         if (dx < -SWIPE_THRESHOLD) nextPage() else if (dx > SWIPE_THRESHOLD) prevPage()
                     } else {
-                        val w = width.toFloat()
+                        val w = contentView.width.toFloat()
                         if (event.x < w * 0.33f) prevPage() else if (event.x > w * 0.67f) nextPage() else toggleControls()
                     }
                     true
